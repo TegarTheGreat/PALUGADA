@@ -16,7 +16,7 @@ import { ownerInbox, TEAM_SQL } from '../inbox/inbox.ts';
 import type { ActivityItem, Unread } from './contract.ts';
 import { messageIdOf } from './messages.ts';
 import { ensureCompanyMember, visibleRoom } from './rooms.ts';
-import type { Viewer } from './views.ts';
+import { directoryOf, type Viewer } from './views.ts';
 
 /**
  * A person's read mark in a room, raised to `position`. Never back, and
@@ -62,6 +62,30 @@ export async function markRead(viewer: Viewer, roomId: string, input: Record<str
     const { rows } = await tx.query<{ read_position: string }>(
       'SELECT read_position FROM room_places WHERE room_id = $1 AND principal = $2', [roomId, viewer.person.principal]);
     return { readPosition: Number(rows[0]?.read_position ?? 0) };
+  });
+}
+
+/**
+ * Everything waiting for a person, read at once (STATUS 2.218): every room
+ * they are in read to its newest message, and every mention, reply and card
+ * owed to them seen, in rooms they have not joined too. Only their own marks
+ * and attention move (0150 lets a person touch no one else's), nothing is
+ * joined, and the database still refuses a mark past the company's clock.
+ * Answers how many rooms were read and how many things seen.
+ */
+export async function readEverything(viewer: Viewer): Promise<{ rooms: number; seen: number }> {
+  return withPeople(viewer.companyId, viewer.person, async (tx) => {
+    const { rowCount: rooms } = await tx.query(
+      `UPDATE room_places p SET read_position = newest.position
+         FROM (SELECT p2.room_id, (SELECT max(m.position) FROM room_messages m WHERE m.room_id = p2.room_id) AS position
+                 FROM room_places p2
+                 JOIN room_members r ON r.company_id = p2.company_id AND r.room_id = p2.room_id AND r.principal = p2.principal
+                WHERE p2.principal = $1 AND r.left_at IS NULL) newest
+        WHERE p.principal = $1 AND p.room_id = newest.room_id AND newest.position > p.read_position`,
+      [viewer.person.principal]);
+    const { rowCount: seen } = await tx.query(
+      'UPDATE room_mentions SET seen_at = now() WHERE principal = $1 AND seen_at IS NULL', [viewer.person.principal]);
+    return { rooms: rooms ?? 0, seen: seen ?? 0 };
   });
 }
 
@@ -112,6 +136,15 @@ export async function unreadAcross(viewer: Omit<Viewer, 'companyId'> & { company
 
 /** A page of Activity. */
 const ACTIVITY_PAGE = 50;
+/** How much of a message an Activity entry says. */
+const EXCERPT = 140;
+
+/** A few of a message's words on one line, cut short where they run on; none for a message removed or without words. */
+function excerptOf(body: string | null): string | null {
+  const words = (body ?? '').replace(/\s+/g, ' ').trim();
+  if (!words) return null;
+  return words.length > EXCERPT ? `${words.slice(0, EXCERPT - 1).trimEnd()}…` : words;
+}
 /** How long a person is told that work they asked for ended. */
 const WORK_DONE_DAYS = 7;
 
@@ -133,15 +166,27 @@ export async function activityOf(viewer: Viewer): Promise<ActivityItem[]> {
   // in a thread they follow when they follow it, as its setter always does.
   // Someone who follows its thread, its notes, and was not asked has it as
   // every reply there: a reply in a thread they follow.
+  // Who wrote each and a few of their words (STATUS 2.218), read in the same
+  // transaction as the person, so Activity says nothing their own page of the
+  // room would not: a person's words for a mention or a reply, the words of
+  // the meeting a reminder is about, and none for a card, which is the
+  // platform's and says its work where it is drawn.
+  const directory = await directoryOf(viewer.companyId);
   const inRooms = await withPeople(viewer.companyId, viewer.person, async (tx) => (await tx.query<{
     reason: 'mention' | 'reply' | 'card' | 'meeting'; room_id: string; message_id: string; thread_of: string | null; created_at: Date; seen: boolean;
+    position: string; author: string; author_name: string | null; body: string | null; root_body: string | null; root_author: string | null;
+    root_author_name: string | null;
   }>(
     `SELECT CASE WHEN m.kind = 'notice' AND m.notice_code = 'meeting_soon'
                   AND (n.reason = 'card' OR EXISTS (SELECT 1 FROM room_meetings g
                         WHERE g.company_id = m.company_id AND g.message_id = m.thread_of AND $1 = ANY (g.attendees)))
                  THEN 'meeting' ELSE n.reason END AS reason,
-            m.room_id, n.message_id, m.thread_of, n.created_at, n.seen_at IS NOT NULL AS seen
+            m.room_id, n.message_id, m.thread_of, n.created_at, n.seen_at IS NOT NULL AS seen,
+            m.position, m.author, m.author_name, m.body,
+            root.body AS root_body, root.author AS root_author, root.author_name AS root_author_name
        FROM room_mentions n JOIN room_messages m ON m.company_id = n.company_id AND m.id = n.message_id
+       LEFT JOIN room_messages root ON root.company_id = m.company_id AND root.id = m.thread_of
+                 AND m.kind = 'notice' AND m.notice_code = 'meeting_soon'
       WHERE n.principal = $1
       ORDER BY n.created_at DESC LIMIT ${ACTIVITY_PAGE}`, [me])).rows);
   const work = await withTenant(viewer.companyId, async (tx) => {
@@ -170,10 +215,18 @@ export async function activityOf(viewer: Viewer): Promise<ActivityItem[]> {
     return { questions, team, done };
   });
   const items: Array<ActivityItem & { sortAt: number }> = [
-    ...inRooms.map((row) => ({
-      kind: row.reason, roomId: row.room_id, messageId: row.message_id, threadOf: row.thread_of, at: row.created_at.toISOString(), seen: row.seen,
-      sortAt: row.created_at.getTime(),
-    })),
+    ...inRooms.map((row) => {
+      // A meeting's reminder is the platform's notice; what it is about is its meeting's words, by whoever set it.
+      const meeting = row.reason === 'meeting' && row.root_author !== null;
+      const author = meeting ? row.root_author! : row.author;
+      return {
+        kind: row.reason, roomId: row.room_id, messageId: row.message_id, threadOf: row.thread_of, position: Number(row.position),
+        at: row.created_at.toISOString(), seen: row.seen,
+        author: author === 'platform' ? null : directory.refOf(author, meeting ? row.root_author_name : row.author_name),
+        excerpt: row.reason === 'card' ? null : excerptOf(meeting ? row.root_body : row.body),
+        sortAt: row.created_at.getTime(),
+      };
+    }),
     ...work.questions.map((row) => ({ kind: 'question' as const, itemId: row.id, taskId: row.task_id, at: row.created_at.toISOString(), sortAt: row.created_at.getTime() })),
     ...work.team.map((row) => ({ kind: 'team_item' as const, itemId: row.id, taskId: row.task_id, at: row.created_at.toISOString(), sortAt: row.created_at.getTime() })),
     ...work.done.map((row) => ({ kind: 'work_done' as const, taskId: row.id, state: row.status, at: row.finished_at.toISOString(), sortAt: row.finished_at.getTime() })),

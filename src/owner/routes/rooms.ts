@@ -23,7 +23,7 @@ import {
 } from '../../workspace/messages.ts';
 import { changePeopleMeeting, setPeopleMeeting } from '../../workspace/people-meetings.ts';
 import { principalOf } from '../../workspace/principal.ts';
-import { activityOf, markRead, unreadAcross } from '../../workspace/reads.ts';
+import { activityOf, markRead, readEverything, unreadAcross } from '../../workspace/reads.ts';
 import {
   archiveRoom, changeMembers, changeRoom, joinRoom, leaveRoom, listRooms, makeTopicRoom, openDirectRoom, peopleOf,
   placeSettings, roomIdOf, roomOf,
@@ -178,9 +178,8 @@ export function roomRoutes(kit: RouteKit): Route[] {
     {
       method: 'POST',
       pattern: '/api/companies/:companyId/rooms/:roomId/messages/:messageId/edit',
-      handle: posted(async (viewer, { params, body }) => ({
-        message: await editMessage(viewer, roomIdOf(params.roomId), messageIdOf(params.messageId), body),
-      })),
+      // New words, and whom they name now (STATUS 2.218): the people kept, and those not, with why.
+      handle: posted(async (viewer, { params, body }) => editMessage(viewer, roomIdOf(params.roomId), messageIdOf(params.messageId), body)),
     },
     {
       method: 'POST',
@@ -223,6 +222,12 @@ export function roomRoutes(kit: RouteKit): Route[] {
       method: 'GET',
       pattern: '/api/companies/:companyId/me/activity',
       handle: async (context) => ({ items: await activityOf(viewerOf(context)) }),
+    },
+    {
+      // Everything that waits for the person read at once: their own marks and mentions (STATUS 2.218).
+      method: 'POST',
+      pattern: '/api/companies/:companyId/me/read-all',
+      handle: posted(async (viewer) => readEverything(viewer)),
     },
     {
       // "Give as work": the message becomes a task, its money held first.

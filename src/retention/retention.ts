@@ -483,6 +483,25 @@ export async function purgeExpiredMessages(companyId: string, now = new Date(), 
 }
 
 /**
+ * How many messages a window of `days` would take at the next pass, as the
+ * owner is told before choosing it (STATUS 2.218): the words still said that
+ * are older than the window, each by its own age. A count and nothing else --
+ * no room, no person, no word -- read on the control plane, as the purge is.
+ * About, since a thread's first message past the window keeps its place
+ * while its replies are younger.
+ */
+export async function messagesPast(companyId: string, days: number, now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - days * 86_400_000);
+  return withControlPlane(async (tx) => {
+    await roomsOnControlPlane(tx, companyId);
+    const { rows } = await tx.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM room_messages
+        WHERE company_id = $1 AND kind = 'text' AND deleted_at IS NULL AND created_at < $2`, [companyId, cutoff]);
+    return rows[0]!.n;
+  });
+}
+
+/**
  * Applies the whole policy, oldest-risk first.
  *
  * Prompts are scrubbed before traces are purged so that a trace passing both

@@ -93,6 +93,36 @@ function written(body: string, principal: string, directory: Directory): boolean
   return new RegExp(`(^|[^\\w@])@${escaped(token)}(?![\\w-])`, 'iu').test(body);
 }
 
+/** The people a post or an edit asks to mention: a list of at most fifty principals, or none. */
+function mentionsAsked(input: Record<string, unknown>): string[] {
+  const asked = input.mentions === undefined || input.mentions === null ? [] : input.mentions;
+  if (!Array.isArray(asked) || asked.length > 50 || !asked.every((one) => typeof one === 'string')) {
+    throw new PalugadaError('contract.violation', 'mentions is a list of at most 50 people', { field: 'mentions' });
+  }
+  return asked as string[];
+}
+
+/**
+ * Which of the people asked for are mentioned by these words in this room:
+ * a person of the company, whose name is in the words and who can see the
+ * room. The others are said back with why, so a mention that reaches nobody
+ * is never silent -- the same for a post and for an edit (STATUS 2.218).
+ */
+async function keptMentions(
+  tx: TenantClient, room: RoomRecord, directory: Directory, body: string, asked: string[],
+): Promise<{ kept: string[]; dropped: Posted['mentionsDropped'] }> {
+  const seeing = await whoCanSee(tx, room, directory);
+  const kept: string[] = [];
+  const dropped: Posted['mentionsDropped'] = [];
+  for (const principal of new Set(asked)) {
+    if (!isPerson(principal) || !directory.get(principal)?.live) dropped.push({ principal, why: 'not_a_person' });
+    else if (!written(body, principal, directory)) dropped.push({ principal, why: 'not_written' });
+    else if (!seeing.has(principal)) dropped.push({ principal, why: 'not_in_room' });
+    else kept.push(principal);
+  }
+  return { kept, dropped };
+}
+
 export interface Posted {
   message: MessageView;
   /** Mentions the server did not keep, and why: not a person, not in the words, or not able to see the room. */
@@ -134,10 +164,7 @@ export async function postMessage(
   if (alsoInRoom && threadOf === null) {
     throw new PalugadaError('contract.violation', 'only a reply is also sent to the room', { field: 'alsoInRoom' });
   }
-  const asked = input.mentions === undefined || input.mentions === null ? [] : input.mentions;
-  if (!Array.isArray(asked) || asked.length > 50 || !asked.every((one) => typeof one === 'string')) {
-    throw new PalugadaError('contract.violation', 'mentions is a list of at most 50 people', { field: 'mentions' });
-  }
+  const asked = mentionsAsked(input);
   const everyone = input.mentionsRoom === true;
   if (everyone && !mayDecide(viewer)) {
     throw new PalugadaError('mention.room_not_yours', 'only the owner and approvers can notify the whole room', {});
@@ -168,15 +195,7 @@ export async function postMessage(
       if (root.thread_of !== null) throw new PalugadaError('contract.violation', 'a thread is one level deep: reply to the message it began with', { field: 'threadOf' });
     }
     slowDown(viewer);
-    const seeing = await whoCanSee(tx, room, directory);
-    const kept: string[] = [];
-    const dropped: Posted['mentionsDropped'] = [];
-    for (const principal of new Set(asked as string[])) {
-      if (!isPerson(principal) || !directory.get(principal)?.live) dropped.push({ principal, why: 'not_a_person' });
-      else if (!written(body, principal, directory)) dropped.push({ principal, why: 'not_written' });
-      else if (!seeing.has(principal)) dropped.push({ principal, why: 'not_in_room' });
-      else kept.push(principal);
-    }
+    const { kept, dropped } = await keptMentions(tx, room, directory, body, asked);
     const id = randomUUID();
     // Where the words came from is the session's, as the database checks:
     // the console, or the relay whose inbound code opened this transaction.
@@ -197,15 +216,24 @@ async function shown(tx: TenantClient, viewer: Viewer, directory: Directory, mes
   return (await messageViews(tx, viewer, directory, rows))[0]!;
 }
 
-/** New words for one's own message, within a day; what they replace is kept for the owner (0150). */
-export async function editMessage(viewer: Viewer, roomId: string, messageId: string, input: Record<string, unknown>): Promise<MessageView> {
+/**
+ * New words for one's own message, within a day; what they replace is kept
+ * for the owner (0150). The people the new words name are mentioned as a
+ * post mentions them (STATUS 2.218): only those asked for whose name is in
+ * the words and who can see the room, the others said back with why. Someone
+ * no longer named is no longer mentioned, and someone newly named is told
+ * (0161). `mentions` left out keeps whom the message named, as long as their
+ * names are still in the words.
+ */
+export async function editMessage(viewer: Viewer, roomId: string, messageId: string, input: Record<string, unknown>): Promise<Posted> {
   const body = typeof input.body === 'string' ? input.body : '';
   if (body.trim().length < 1 || body.length > BODY_MAX) {
     throw new PalugadaError('contract.violation', `a message says something, in at most ${BODY_MAX} characters`, { field: 'body' });
   }
+  const asked = input.mentions === undefined ? null : mentionsAsked(input);
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
-    await visibleRoom(tx, viewer, roomId);
+    const room = await visibleRoom(tx, viewer, roomId);
     await takeClock(tx);
     const message = await messageIn(tx, roomId, messageId, { lock: true });
     if (message.kind !== 'text' || message.author !== viewer.person.principal) {
@@ -215,8 +243,11 @@ export async function editMessage(viewer: Viewer, roomId: string, messageId: str
     if (Date.now() - message.created_at.getTime() >= EDIT_WINDOW_MS) {
       throw new PalugadaError('message.edit_window', 'a message can be edited for a day after it is sent', { messageId });
     }
-    if (message.body !== body) await tx.query('UPDATE room_messages SET body = $2 WHERE id = $1', [messageId, body]);
-    return shown(tx, viewer, directory, messageId);
+    const { kept, dropped } = await keptMentions(tx, room, directory, body, asked ?? message.mentions);
+    if (message.body !== body) {
+      await tx.query('UPDATE room_messages SET body = $2, mentions = $3 WHERE id = $1', [messageId, body, kept]);
+    }
+    return { message: await shown(tx, viewer, directory, messageId), mentionsDropped: message.body !== body ? dropped : [] };
   });
 }
 

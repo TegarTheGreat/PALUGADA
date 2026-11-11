@@ -275,10 +275,21 @@ const MEET_STAFF: AreaPolicy = {
   decides: [],
 };
 
+// --- the rooms as people use them (STATUS 2.218) ---
+// Marking everything read moves only the person's own read marks and
+// mentions, which every seat keeps for itself, a viewer's too.
+const USE_STAFF: AreaPolicy = {
+  reads: [],
+  hidden: {},
+  talks: ['/api/companies/:companyId/me/read-all'],
+  asks: [],
+  decides: [],
+};
+
 // --- end of the areas ---
 
 const AREAS: readonly AreaPolicy[] = [
-  ROOM_STAFF, TALK_STAFF, RELAY_STAFF, PEOPLE_STAFF, MEETING_STAFF, FIND_STAFF, IMPORT_STAFF, MEET_STAFF,
+  ROOM_STAFF, TALK_STAFF, RELAY_STAFF, PEOPLE_STAFF, MEETING_STAFF, FIND_STAFF, IMPORT_STAFF, MEET_STAFF, USE_STAFF,
 ];
 
 /** Reads a seat may make: its own company's pages, the console's needs, and each area's. */

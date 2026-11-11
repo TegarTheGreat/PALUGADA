@@ -94,11 +94,17 @@ export type ThreadView = { root: MessageView; replies: MessageView[]; following:
 
 /**
  * What asks for a person's attention, newest first. A message in a thread
- * names its thread, so it opens where it is read, and is seen there. A
- * meeting is the reminder of a people's meeting about to start (F19.26).
+ * names its thread, so it opens where it is read, and is seen there; one at
+ * the top of a room names its position, so the room opens around it. A
+ * meeting is the reminder of a people's meeting about to start (F19.26). Who
+ * wrote it and a few of their words, read as the person, say what it is
+ * without opening it (STATUS 2.218); a card has neither.
  */
 export type ActivityItem =
-  | { kind: 'mention' | 'reply' | 'card' | 'meeting'; roomId: string; messageId: string; threadOf: string | null; at: string; seen: boolean }
+  | {
+    kind: 'mention' | 'reply' | 'card' | 'meeting'; roomId: string; messageId: string; threadOf: string | null; position: number;
+    at: string; seen: boolean; author: PersonRef | null; excerpt: string | null;
+  }
   | { kind: 'question' | 'team_item'; itemId: string; taskId: string | null; at: string }
   | { kind: 'work_done'; taskId: string; state: string; at: string };
 

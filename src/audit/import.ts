@@ -555,6 +555,7 @@ export async function importCompany(
   );
   escalationSetFromHistory(bySection);
   goalsParentsFirst(bySection);
+  importsEndedOnRestore(bySection, new Date().toISOString());
 
   // One transaction, on the control plane, for the whole company.
   //
@@ -703,6 +704,40 @@ function escalationSetFromHistory(bySection: Map<string, Array<Record<string, un
     ...row,
     escalation_set: row.escalation_role_slug != null || row.escalate_after_minutes != null
       || (typeof row.id === 'string' && said.has(row.id)),
+  }));
+}
+
+/** How many lines an import's report holds, as the table holds them (STATUS 2.214). */
+const IMPORT_PROBLEMS_MOST = 200;
+
+/**
+ * A Slack import that had not ended when the archive was taken, still
+ * receiving its parts or waiting to be read (STATUS 2.214), comes back ended:
+ * its parts stayed on the deployment the archive came from, and an archive
+ * carries none. Restored as it was, it would take the rest of its parts here
+ * and then fail when read, its counts emptied. It comes back failed, as one
+ * whose parts were gone when it was read does -- that line first, then what
+ * it had reported, within what the table holds -- with its parts gone and
+ * what it had counted kept, so it takes no part and nothing reads it. Rows
+ * are replaced, not changed.
+ */
+function importsEndedOnRestore(bySection: Map<string, Array<Record<string, unknown>>>, at: string): void {
+  const imports = bySection.get('room_imports');
+  if (!imports) return;
+  bySection.set('room_imports', imports.map((row) => {
+    if (row.status !== 'receiving' && row.status !== 'reading') return row;
+    const said = Array.isArray(row.problems) ? row.problems as Array<{ code?: unknown; count?: unknown }> : [];
+    const counted = said.at(-1)?.code === 'more';
+    const lines = counted ? said.slice(0, -1) : said;
+    const kept = lines.slice(0, IMPORT_PROBLEMS_MOST - 2);
+    const more = (counted ? Number(said.at(-1)!.count ?? 0) : 0) + lines.length - kept.length;
+    return {
+      ...row,
+      status: 'failed',
+      finished_at: at,
+      parts_gone_at: row.parts_gone_at ?? at,
+      problems: [{ code: 'part_missing' }, ...kept, ...(more > 0 ? [{ code: 'more', count: more }] : [])],
+    };
   }));
 }
 

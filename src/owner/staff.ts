@@ -38,6 +38,7 @@ import { CONFUSABLES } from './confusables.ts';
 import { TOTP_DRIFT_STEPS, decodeBase32, encodeBase32, stepFor, totpCode, totpUri } from './mfa.ts';
 import { qrMatrix } from './qr.ts';
 import { endLinksOf } from '../relay/links.ts';
+import { voidSeatOffers } from '../relay/people.ts';
 
 export type StaffKind = 'viewer' | 'member' | 'approver';
 
@@ -435,6 +436,11 @@ export class StaffSeats {
           [seatId, companyId, change.name ?? null, named ?? null, change.kind ?? null, change.asksPerDay ?? null]);
         const row = rows[0];
         if (!row) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is ended', { seatId });
+        // A kind changed voids what its phone was offered to answer or
+        // decide, in the same transaction (STATUS section 2.213): a press is
+        // read against the seat again in any case, and this is what tells the
+        // phone the button is spent.
+        if (change.kind !== undefined) await voidSeatOffers(tx, `seat:${seatId}`, this.#now());
         return { id: row.id, name: row.name, kind: row.kind, asksPerDay: row.asks_per_day };
       });
     } catch (error) {

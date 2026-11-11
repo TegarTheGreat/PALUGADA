@@ -619,6 +619,7 @@ test("a retraction waits for the relay's row before its offers, as a change of t
   const relay = await fakeRelay();
   const api = await consoleWithSettings();
   const admin = await adminPool().connect();
+  let committed = false;
   try {
     const token = await api.signIn();
     const relayId = await pairThrough(api, token, relay, { companies: [fixture.companyId], share: 'summary', mayPress: true });
@@ -643,9 +644,12 @@ test("a retraction waits for the relay's row before its offers, as a change of t
     await admin.query(`UPDATE relay_offers SET voided_at = now() WHERE relay_id = $1 AND voided_at IS NULL AND act = ANY($2::text[])`,
       [relayId, ['approve', 'deny', 'answer']]);
     await admin.query('COMMIT');
+    committed = true;
     assert.equal(await retracting, 'retracted');
   } finally {
-    await admin.query('ROLLBACK').catch(() => undefined);
+    // A transaction the test committed has nothing to roll back, and
+    // PostgreSQL warns of a ROLLBACK with no transaction.
+    if (!committed) await admin.query('ROLLBACK').catch(() => undefined);
     admin.release();
     await api.close();
     await relay.close();

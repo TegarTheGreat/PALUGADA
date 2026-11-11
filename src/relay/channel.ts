@@ -222,13 +222,14 @@ export class RelayChannel implements OwnerChannel {
   }
 }
 
-async function deploymentOf(tx: TenantClient): Promise<string> {
+/** The deployment's id, as every envelope names it. */
+export async function deploymentOf(tx: TenantClient): Promise<string> {
   const { rows: [control] } = await tx.query<{ deployment: string }>('SELECT deployment_id::text AS deployment FROM platform_control');
   return control!.deployment;
 }
 
 /** A company as the relay may know it: its reference always, and its name above `signal`. */
-async function companyOf(tx: TenantClient, relay: RelayRow, companyId: string, share: Share): Promise<Record<string, string>> {
+export async function companyOf(tx: TenantClient, relay: RelayRow, companyId: string, share: Share): Promise<Record<string, string>> {
   const ref = companyRef(relay.salt, companyId);
   if (share === 'signal') return { ref };
   const { rows } = await tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [companyId]);

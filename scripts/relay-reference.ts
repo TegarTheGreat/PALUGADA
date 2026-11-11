@@ -6,7 +6,9 @@
  *                                    [--public-url https://relay.example] [--state relay-state.json] [--name "My relay"]
  *   npm run relay:reference -- link <code>              the code PALUGADA showed under Link a phone
  *   npm run relay:reference -- press <token> [answer]   a button from a notice this relay printed
- *   npm run relay:reference -- reply <token> <text>
+ *   npm run relay:reference -- reply <token> <text>      words back into the room a notice named
+ *   npm run relay:reference -- read <token>              that notice read, on every device
+ *   npm run relay:reference -- mute <token> [hours]      its room quiet for so long (8 unless said)
  *
  * The supported way to put PALUGADA's notices on a phone until a hosted relay
  * exists: it verifies every envelope against the deployment's pinned key,
@@ -129,6 +131,9 @@ export interface ReferenceRelay {
   link(code: string, label?: string): Promise<void>;
   press(token: string, answer?: string): Promise<void>;
   reply(token: string, text: string): Promise<void>;
+  read(token: string): Promise<void>;
+  /** The notice's room quiet until a time, or heard again with null. */
+  mute(token: string, until: string | null): Promise<void>;
   /** Every envelope it took, retracted content dropped. */
   received(): Array<Record<string, any>>;
   /** How many envelopes it refused. */
@@ -296,7 +301,11 @@ export async function startReferenceRelay(options: ReferenceRelayOptions): Promi
     for (const offer of envelope.offers ?? []) offeredTo.set(offer.token, envelope.to?.recipient);
     kept.push(envelope);
     say(`${envelope.type}${envelope.to ? ` for ${envelope.to.recipient}` : ''}: ${envelope.text ?? ''}${envelope.link ? ` (${envelope.link})` : ''}`);
-    for (const offer of envelope.offers ?? []) say(`  ${offer.label}: npm run relay:reference -- press ${offer.token}`);
+    for (const offer of envelope.offers ?? []) {
+      // A room's notice is answered with words, a read mark or a mute; an item's with a press.
+      const command = ['reply', 'read', 'mute'].includes(offer.act) ? offer.act : 'press';
+      say(`  ${offer.label}: npm run relay:reference -- ${command} ${offer.token}${command === 'reply' ? ' <words>' : ''}`);
+    }
     await forward(envelope);
     reply(res, 200, { ok: true });
   };
@@ -345,6 +354,11 @@ export async function startReferenceRelay(options: ReferenceRelayOptions): Promi
       } else if (path === '/local/reply') {
         const clientId = randomUUID();
         deviceAct('reply', given.token!, { body: given.text, clientId }, { clientId }, given.text ?? '');
+      } else if (path === '/local/read') {
+        deviceAct('read', given.token!, {}, {}, null);
+      } else if (path === '/local/mute') {
+        const until = given.until ?? null;
+        deviceAct('mute', given.token!, { until }, { until }, null);
       } else {
         return reply(res, 404, { ok: false });
       }
@@ -369,7 +383,7 @@ export async function startReferenceRelay(options: ReferenceRelayOptions): Promi
         if (req.method === 'GET' && url.pathname === '/.well-known/palugada-relay') {
           return reply(res, 200, {
             v: 1, relay: options.name ?? 'PALUGADA reference relay', key: publicKey.toString('base64url'), versions: [1],
-            envelopes: `${base}/v1/envelopes`, inbox: `${base}/v1/inbox`, modes: ['pull'], features: ['press', 'reply', 'device-keys'],
+            envelopes: `${base}/v1/envelopes`, inbox: `${base}/v1/inbox`, modes: ['pull'], features: ['press', 'reply', 'read', 'mute', 'device-keys'],
           });
         }
         if (req.method === 'POST' && url.pathname === '/v1/envelopes') return envelopes(req, res, body);
@@ -400,6 +414,8 @@ export async function startReferenceRelay(options: ReferenceRelayOptions): Promi
     link: (code, label) => act('/local/link', { code, ...(label ? { label } : {}) }),
     press: (token, answer) => act('/local/press', { token, ...(answer === undefined ? {} : { answer }) }),
     reply: (token, text) => act('/local/reply', { token, text }),
+    read: (token) => act('/local/read', { token }),
+    mute: (token, until) => act('/local/mute', { token, until }),
     received: () => kept.slice(),
     refused: () => refusals,
     close: () => new Promise<void>((resolve) => {
@@ -447,15 +463,20 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   const positional = rest.filter((one, index) => !one.startsWith('--') && !rest[index - 1]?.startsWith('--'));
-  const paths: Record<string, [string, Record<string, unknown>]> = {
-    link: ['/local/link', { code: positional[0] }],
-    press: ['/local/press', { token: positional[0], ...(positional[1] !== undefined ? { answer: positional.slice(1).join(' ') } : {}) }],
-    reply: ['/local/reply', { token: positional[0], text: positional.slice(1).join(' ') }],
+  const usage = 'usage: serve --deployment-fingerprint <fingerprint> | link <code> | press <token> [answer] | reply <token> <text> | read <token> | mute <token> [hours]';
+  // A mute's hours are read only for a mute, and only as a number of hours
+  // PALUGADA takes: more than none, and at most thirty days.
+  const hours = command === 'mute' ? Number(positional[1] ?? 8) : 0;
+  if (command === 'mute' && !(Number.isFinite(hours) && hours > 0 && hours <= 720)) throw new Error(usage);
+  const paths: Record<string, () => [string, Record<string, unknown>]> = {
+    link: () => ['/local/link', { code: positional[0] }],
+    press: () => ['/local/press', { token: positional[0], ...(positional[1] !== undefined ? { answer: positional.slice(1).join(' ') } : {}) }],
+    reply: () => ['/local/reply', { token: positional[0], text: positional.slice(1).join(' ') }],
+    read: () => ['/local/read', { token: positional[0] }],
+    mute: () => ['/local/mute', { token: positional[0], until: new Date(Date.now() + hours * 3_600_000).toISOString() }],
   };
-  const chosen = command ? paths[command] : undefined;
-  if (!chosen || !positional[0]) {
-    throw new Error('usage: serve --deployment-fingerprint <fingerprint> | link <code> | press <token> [answer] | reply <token> <text>');
-  }
+  const chosen = command && Object.hasOwn(paths, command) ? paths[command]!() : undefined;
+  if (!chosen || !positional[0]) throw new Error(usage);
   const response = await fetch(`http://127.0.0.1:${port}${chosen[0]}`, { method: 'POST', body: JSON.stringify(chosen[1]) });
   process.stdout.write(`${await response.text()}\n`);
 }

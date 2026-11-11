@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { withControlPlane, withPeople, withRoomPlatform, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
+import { linkedPeople } from '../relay/people.ts';
 import type { Person as PersonView, Room, RoomListItem } from './contract.ts';
 import { assertPeopleOf, isPerson } from './principal.ts';
 import { directoryOf, mayDecide, type Directory, type Viewer } from './views.ts';
@@ -521,13 +522,16 @@ export async function placeSettings(viewer: Viewer, roomId: string, body: Record
 }
 
 /** The company's people, as the people list and the mention picker show them; their kind is the owner's to see. */
-export async function peopleOf(viewer: Viewer): Promise<PersonView[]> {
+export async function peopleOf(viewer: Viewer, options: { ownerChat: boolean }): Promise<PersonView[]> {
   await assertCompany(viewer.companyId);
   const directory = await directoryOf(viewer.companyId);
+  // Who is told outside PALUGADA: a phone linked through a relay that hears
+  // about the company, and the owner only when they hear people, there or in
+  // their chat (STATUS section 2.213). The mention picker marks the rest.
+  const told = await linkedPeople(viewer.companyId, options);
   return directory.live().map((someone) => ({
     ...directory.refOf(someone.principal),
     ...(viewer.kind === 'owner' && someone.kind !== 'owner' ? { kind: someone.kind } : {}),
-    // A linked phone is the relay's (section 2.208); none is linked yet.
-    linked: false,
+    linked: told.has(someone.principal),
   }));
 }

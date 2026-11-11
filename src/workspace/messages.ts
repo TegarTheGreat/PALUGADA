@@ -14,6 +14,7 @@ import { withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import type { MessagePage, MessageView, ThreadView } from './contract.ts';
 import { attachFiles, filesToAttach, keptPaths, removeRoomFiles, stageFiles, unstage } from './files.ts';
+import { retractMessages } from '../relay/people.ts';
 import { isPerson } from './principal.ts';
 import { assertMember, ensureCompanyMember, takeClock, visibleRoom, type RoomRecord } from './rooms.ts';
 import {
@@ -224,6 +225,11 @@ export async function editMessage(viewer: Viewer, roomId: string, messageId: str
  * with none of its words (0150). Its files' rows let their bytes go as it
  * commits, and the bytes are removed after; a process that stops between the
  * two leaves bytes no row names, which the next sweep removes (STATUS 2.212).
+ * Its words are then withdrawn from every relay a notice of it went to, and
+ * never sent where one had not gone yet (STATUS section 2.213), once the
+ * delete has committed. The delete stands whatever that answers: a notice of
+ * removed words is never sent in any case, and the notify stage's next pass
+ * makes a retraction this one could not (`retractRemoved`).
  */
 export async function deleteMessage(
   viewer: Viewer, roomId: string, messageId: string, options: { peopleFolder?: string | null } = {},
@@ -241,6 +247,12 @@ export async function deleteMessage(
     return { view: await shown(tx, viewer, directory, messageId), paths };
   });
   await removeRoomFiles(options.peopleFolder ?? null, paths);
+  try {
+    await retractMessages(viewer.companyId, [messageId]);
+  } catch {
+    // Not the delete's failure, which has committed: the person is told it
+    // is gone, as it is, and the worker retracts it on its next pass.
+  }
   return view;
 }
 

@@ -23,10 +23,14 @@ export function tokenHash(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
-/** What a notice offers: the token the relay presses with, the act, and the words on the button. */
+/**
+ * What a notice offers: the token the relay presses with, the act, and the
+ * words on the button. An item's are approve, deny and answer; a room's
+ * (STATUS section 2.213) a reply, a read mark and a mute.
+ */
 export interface Offer {
   token: string;
-  act: 'approve' | 'deny' | 'answer';
+  act: 'approve' | 'deny' | 'answer' | 'reply' | 'read' | 'mute';
   label: string;
 }
 
@@ -47,7 +51,7 @@ export async function mintOffers(tx: TenantClient, input: {
   language: string | null;
   share: Share;
 }): Promise<Offer[]> {
-  const wanted: Array<{ act: Offer['act']; option: string | null; label: string }> = [];
+  const wanted: Array<{ act: 'approve' | 'deny' | 'answer'; option: string | null; label: string }> = [];
   if (input.item.question) {
     // The choices are the run's own words, and words are what `content` carries.
     if (input.share === 'content') {

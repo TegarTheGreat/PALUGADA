@@ -11,7 +11,9 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPrivateKey, generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
@@ -21,6 +23,8 @@ import { rawPublicKey } from '../../src/relay/signature.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { handToRelay, sendOutbox } from '../helpers/relay.ts';
+import { tell } from '../helpers/notices.ts';
+import { personIn, seated } from '../helpers/rooms.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -169,6 +173,61 @@ test('the reference relay refuses a deployment whose fingerprint it was not give
   }
 });
 
+test("the reference relay tells a person of a room, and replies, marks read and mutes from the phone", async () => {
+  // People's notices (STATUS section 2.213), through the relay written from the document alone.
+  const fixture = await createCompany('relay-reference-people');
+  const api = await consoleWithSettings();
+  const identity = await (await fetch(`${api.url}/api/relay/v1/identity`)).json() as { fingerprint: string };
+  const relay = await startReferenceRelay({ port: 0, deploymentFingerprint: identity.fingerprint, quiet: true });
+  try {
+    const token = await api.signIn();
+    const added = await api.call('POST', '/api/control/relays', token, { url: relay.url });
+    const relayId = String(added.body.relay.id);
+    assert.equal((await api.call('POST', `/api/control/relays/${relayId}/pair`, token, {
+      fingerprint: relay.fingerprint.slice(0, 16), companies: [fixture.companyId], proof: { totp: api.code() },
+    })).status, 200);
+    assert.equal((await api.call('POST', `/api/control/relays/${relayId}/settings`, token, {
+      share: 'content', mayPost: true, proof: { totp: api.code() },
+    })).status, 200);
+    const sari = await seated(fixture, 'Sari', 'member', { handle: 'sari' });
+    const budi = await seated(fixture, 'Budi', 'member', { handle: 'budi' });
+    const sariIn = personIn(api, sari.token, fixture.companyId);
+    const budiIn = personIn(api, budi.token, fixture.companyId);
+    const offered = await api.call('POST', '/api/relays/links', sari.token, { relayId });
+    await relay.link(String(offered.body.code), 'Sari phone');
+    await sendOutbox(api.master);
+    await sendOutbox(api.master);
+
+    const dm = String((await budiIn.direct([sari.principal])).body.room.id);
+    const first = String((await budiIn.say(dm, 'Can you open the shop?')).body.message.id);
+    await tell(fixture.companyId, api.master);
+    const notice = relay.received().find((envelope) => envelope.type === 'room_activity')!;
+    assert.ok(notice, 'told');
+    assert.match(notice.text, /Budi \(@budi\) wrote to you\.\nCan you open the shop\?/);
+    const tokens = Object.fromEntries(notice.offers.map((offer: { act: string; token: string }) => [offer.act, offer.token]));
+
+    // Each act is signed by the phone's own key, and the deployment pulls it.
+    await relay.reply(tokens.reply, 'Yes, at eight.');
+    await relay.read(tokens.read);
+    await relay.mute(tokens.mute, new Date(Date.now() + 3_600_000).toISOString());
+    await sendOutbox(api.master);
+    assert.equal(relay.refused(), 0);
+    const page = (await sariIn.page(dm)).body.messages as Array<{ body: string | null; via: string; author: { principal: string } }>;
+    assert.ok(page.some((one) => one.body === 'Yes, at eight.' && one.via === 'relay' && one.author.principal === sari.principal));
+    const settings = (await sariIn.settings(dm, {})).body as { mutedUntil: string | null };
+    assert.ok(settings.mutedUntil !== null, 'muted from the phone');
+
+    // Deleted: the relay drops what it held of it.
+    assert.equal((await budiIn.on(dm, first, 'delete')).status, 200);
+    await sendOutbox(api.master);
+    assert.ok(relay.received().some((envelope) => envelope.type === 'room_activity_retracted' && envelope.data.refs.includes(notice.id)));
+    assert.equal(notice.text, undefined, 'what a retraction names is dropped');
+  } finally {
+    await relay.close();
+    await api.close();
+  }
+});
+
 /** The deployment's signing key, opened from the seed it sealed, as only someone holding that seed could. */
 async function sealedKey(api: Awaited<ReturnType<typeof consoleWithSettings>>, ref: string): Promise<KeyObject> {
   const seed = Buffer.from(await api.secrets.resolve(ref), 'base64');
@@ -232,4 +291,26 @@ test('the reference relay takes a new key only from a rotation that the key it p
     await relay.close();
     await api.close();
   }
+});
+
+/** The reference relay's command line, run as a person runs it, against a port nothing listens on. */
+function relayCommand(...args: string[]): Promise<{ code: number; stderr: string }> {
+  const script = fileURLToPath(new URL('../../scripts/relay-reference.ts', import.meta.url));
+  return new Promise((resolve) => {
+    execFile(process.execPath, [script, ...args, '--port', '1'], { timeout: 30_000 }, (error, _stdout, stderr) => {
+      resolve({ code: error ? Number((error as { code?: number }).code ?? 1) : 0, stderr: String(stderr) });
+    });
+  });
+}
+
+test("the reference relay's commands say how they are used when the hours to mute are not a number of hours", async () => {
+  for (const hours of ['soon', '-2', '721']) {
+    const muted = await relayCommand('mute', 'pt_token', hours);
+    assert.equal(muted.code, 1);
+    assert.match(muted.stderr, /^relay: usage: .*mute <token> \[hours\]/, `mute for ${hours}`);
+  }
+  // A reply's words are not hours: it reaches the relay's port, which here nobody answers.
+  const replied = await relayCommand('reply', 'pt_token', 'see', 'you');
+  assert.equal(replied.code, 1);
+  assert.doesNotMatch(replied.stderr, /Invalid time value|usage/);
 });

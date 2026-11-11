@@ -588,6 +588,12 @@ test('the application role may write what the platform writes, and no more (F12,
     room_files: { table: ['SELECT', 'INSERT'] },
     room_mentions: { table: ['SELECT', 'INSERT'], columns: ['seen_at'] },
     room_follows: { table: ['SELECT', 'INSERT'], columns: ['following', 'updated_at'] },
+    // People's notices (STATUS section 2.213): the planner writes and purges
+    // them, and a send settles them; nothing else of a row changes.
+    people_notices: {
+      table: ['SELECT', 'INSERT', 'DELETE'],
+      columns: ['count', 'position', 'day', 'notify_after', 'attempts', 'last_attempt_at', 'delivered_at', 'settled_as', 'last_error'],
+    },
   };
   for (const [table, granted] of Object.entries(ROOM_GRANTS)) {
     for (const privilege of ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) {
@@ -602,7 +608,8 @@ test('the application role may write what the platform writes, and no more (F12,
     }
     assert.deepEqual(updatable.sort(), [...(granted.columns ?? [])].sort(), `${table}: the columns it may change`);
   }
-  for (const fn of ['app.advance_card_cursor(uuid, timestamptz)', 'app.touch_room_card(uuid, uuid, uuid)', 'app.may_see(uuid, uuid, text)']) {
+  for (const fn of ['app.advance_card_cursor(uuid, timestamptz)', 'app.touch_room_card(uuid, uuid, uuid)', 'app.may_see(uuid, uuid, text)',
+    'app.take_notice_cursor(uuid)', 'app.advance_notice_cursor(uuid, bigint)']) {
     assert.equal(await may(`has_function_privilege(${app}, '${fn}', 'EXECUTE')`), true, fn);
   }
   assert.equal(await may(`has_function_privilege(${app}, 'app.next_room_position(uuid)', 'EXECUTE')`), false,

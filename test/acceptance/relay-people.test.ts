@@ -90,6 +90,17 @@ function offers(envelope: any): Record<string, string> {
   return Object.fromEntries((envelope.offers ?? []).map((offer: { act: string; token: string }) => [offer.act, offer.token]));
 }
 
+/**
+ * Everything a relay was sent, as one text, to look for words that must never
+ * reach it. Look for a phrase with its spaces, not for its number alone: a
+ * relay is also sent envelope ids, timestamps, tokens and signatures, in hex,
+ * digits and base64, where four digits in a row turn up by chance and a space
+ * never does.
+ */
+function sentTo(relay: FakeRelay): string {
+  return JSON.stringify(relay.received);
+}
+
 async function deploymentOf(api: Console): Promise<string> {
   return String(((await (await fetch(`${api.url}/api/relay/v1/identity`)).json()) as { deployment: string }).deployment);
 }
@@ -393,7 +404,7 @@ test("a deleted message's excerpt is retracted at the relay, and an unsent one n
     await tell(w.fixture.companyId, w.api.master, { send: false });
     ok(await budi.in.on(dm, second, 'delete'));
     await sendOutbox(w.api.master);
-    assert.doesNotMatch(JSON.stringify(w.relay.received), /9090/, 'never sent');
+    assert.doesNotMatch(sentTo(w.relay), /new code is 9090/, 'never sent');
     const owed = await withControlPlane((tx) => tx.query('SELECT 1 FROM relay_outbox WHERE subjects @> ARRAY[$1]::text[]', [`message:${second}`]));
     assert.equal(owed.rows.length, 0);
 
@@ -404,7 +415,7 @@ test("a deleted message's excerpt is retracted at the relay, and an unsent one n
       "UPDATE people_notices SET created_at = created_at - interval '11 minutes' WHERE company_id = $1", [w.fixture.companyId]));
     const tried = await said(budi.in, dm, 'The other code is 7171.');
     await tell(w.fixture.companyId, w.api.master);
-    const attempt = w.relay.received.find((one) => one.envelope?.type === 'room_activity' && /7171/.test(one.body))!;
+    const attempt = w.relay.received.find((one) => one.envelope?.type === 'room_activity' && /other code is 7171/.test(one.body))!;
     ok(await budi.in.on(dm, tried, 'delete'));
     down = false;
     await sendOutbox(w.api.master, new Date(Date.now() + 5 * 60_000));
@@ -623,7 +634,7 @@ test('a message retention takes, or whose delete was cut short, is retracted by 
     });
     // The relay loop comes round first: what was owed of a removed message is not sent.
     await sendOutbox(w.api.master);
-    assert.doesNotMatch(JSON.stringify(w.relay.received), /2222/, 'a removed message is never sent');
+    assert.doesNotMatch(sentTo(w.relay), /vault code is 2222/, 'a removed message is never sent');
 
     // The notify stage's next pass tells the relay to drop what it holds, and drops what it was owed.
     await tell(companyId, w.api.master);
@@ -639,7 +650,7 @@ test('a message retention takes, or whose delete was cut short, is retracted by 
     // The pass after says nothing more.
     await tell(companyId, w.api.master);
     assert.equal(toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted').length, 1);
-    assert.doesNotMatch(JSON.stringify(w.relay.received), /2222/);
+    assert.doesNotMatch(sentTo(w.relay), /vault code is 2222/);
   } finally {
     await w.close();
   }
@@ -663,7 +674,7 @@ test('a notice on its way when its message is deleted is never sent again, and t
 
     // The loop takes it back and does not send it: the relay may have it, so it is told to drop it.
     await sendOutbox(w.api.master);
-    assert.doesNotMatch(JSON.stringify(w.relay.received), /6060/, 'never sent again');
+    assert.doesNotMatch(sentTo(w.relay), /alarm code is 6060/, 'never sent again');
     const told = toldTo(w.relay, sari.phone!);
     assert.deepEqual(told.map((one) => one.type), ['room_activity_retracted']);
     assert.deepEqual(told[0].data.refs, [owed.id]);
@@ -693,7 +704,7 @@ test('a window whose first message is deleted still tells the rest, without the 
     assert.deepEqual(told.map((one) => one.type), ['room_activity'], 'the second is told');
     assert.equal(told[0].data.count, 2);
     assert.equal(told[0].data.excerpt, undefined, 'with no words: the first is gone, and the second was never its excerpt');
-    assert.doesNotMatch(JSON.stringify(told), /1234|call me/);
+    assert.doesNotMatch(JSON.stringify(told), /pin is 1234|call me/);
     assert.deepEqual((await noticesOf(companyId, sari.seat.principal)).map((row) => row.settled_as), ['sent']);
   } finally {
     await w.close();
@@ -769,7 +780,7 @@ test('what retention takes is retracted at the relay, a root left without its wo
 
     // The relay loop comes round first: what was owed of a message retention took is not sent.
     await sendOutbox(w.api.master);
-    assert.doesNotMatch(JSON.stringify(w.relay.received), /2222/, 'what retention took before it went never goes');
+    assert.doesNotMatch(sentTo(w.relay), /vault code is 2222/, 'what retention took before it went never goes');
     // The notify stage's next pass tells Sari's relay to drop what it holds, and drops what it was owed.
     await tell(companyId, w.api.master);
     const retracted = toldTo(w.relay, sari.phone!).filter((one) => one.type === 'room_activity_retracted');

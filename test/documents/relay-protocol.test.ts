@@ -66,6 +66,26 @@ test('the types of v1 are only ever added to: every type a relay was ever told o
   assert.deepEqual(INBOUND_TYPES.filter((type) => !v1Inbound.includes(type)), [], 'a new inbound type: record it above too');
 });
 
+test('a pair_request carries the fields section 6.3 names, and section 6.3 names every field it carries', async () => {
+  // A relay learns where to post back from the pairing request alone
+  // (`inbound`, STATUS section 2.216), so a field the code sends and the
+  // document leaves out is one an independent relay cannot know to read.
+  const text = await protocol();
+  const section = /#### `pair_request`\n([\s\S]*?)\n#### /.exec(text)?.[1] ?? '';
+  const named = (/`\{ ([a-z_, ]+) \}`/.exec(section)?.[1] ?? '').split(',').map((one) => one.trim()).filter(Boolean);
+  const source = await readFile(join(ROOT, 'src', 'relay', 'relays.ts'), 'utf8');
+  const literal = (/const request = \{([\s\S]*?)\n  \};/.exec(source)?.[1] ?? '').replace(/\/\/.*$/gm, '');
+  // A field is a name before a colon, or a name standing alone between commas.
+  const sent = new Set([
+    ...[...literal.matchAll(/\b([a-z_]+)\s*:/g)].map((match) => match[1]!),
+    ...[...literal.matchAll(/(?:^|,)\s*([a-z_]+)\s*(?=,|$)/gm)].map((match) => match[1]!),
+  ]);
+  assert.ok(sent.size >= 10, `only ${sent.size} fields were found in the request; the scan is broken`);
+  assert.ok(named.includes('inbound'), 'section 6.3 says where a relay posts back');
+  assert.deepEqual([...sent].filter((field) => !named.includes(field)).sort(), [], 'a field the code sends and the document does not name');
+  assert.deepEqual(named.filter((field) => !sent.has(field)).sort(), [], 'a field the document names and the code does not send');
+});
+
 test("a relay's fortnight is the deployment's: section 10 says MUST, in the days the deployment keeps what it sent", async () => {
   // PALUGADA deletes what it sent KEPT_DAYS after sending it and can retract
   // nothing later, so a relay that kept content longer would keep deleted

@@ -106,12 +106,23 @@ export function signV1a(keys: readonly KeyObject[], id: string, timestamp: strin
   return keys.map((key) => `v1a,${sign(null, content, key).toString('base64')}`).join(' ');
 }
 
+/**
+ * The most signatures a `webhook-signature` header may carry: one for each
+ * key a sender signs with while it rotates, with room for a sender that also
+ * signs in another form. A header with more verifies nothing, so a stranger
+ * cannot make a receiver check signatures without end before anything else
+ * holds them back (STATUS section 2.216).
+ */
+const MAX_SIGNATURES = 4;
+
 /** Whether any `v1a` signature in a header verifies with any of these raw public keys. */
 export function verifyV1a(header: string, keys: readonly Buffer[], id: string, timestamp: string, payload: string | Buffer): boolean {
   if (!header || keys.length === 0) return false;
+  const parts = header.split(' ');
+  if (parts.length > MAX_SIGNATURES) return false;
   const content = signedContent(id, timestamp, payload);
   const verifiers = keys.map((raw) => publicKeyFrom(raw));
-  return header.split(' ').some((part) => {
+  return parts.some((part) => {
     const comma = part.indexOf(',');
     if (comma <= 0 || part.slice(0, comma) !== 'v1a') return false;
     const signature = Buffer.from(part.slice(comma + 1), 'base64');

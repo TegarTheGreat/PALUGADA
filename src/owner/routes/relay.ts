@@ -107,7 +107,10 @@ export function relayRoutes(kit: RouteKit): Route[] {
       handle: async (context) => {
         const terms = await pairingTerms(context.params.relayId!, context.body);
         await kit.requireFactor(context, 'pair a relay', true);
-        const relay = await pairRelay(context.params.relayId!, terms, master());
+        // The pairing request tells a relay that posts back where this
+        // deployment is: its public address, when it has one.
+        const publicUrl = kit.options.deploymentSettings?.baseEnv.PALUGADA_APP_URL_PUBLIC ?? null;
+        const relay = await pairRelay(context.params.relayId!, terms, master(), { publicUrl });
         // The worker's channels are made when the process starts: a soft
         // start puts this relay among them.
         return { relay, ...kit.applySettings() };

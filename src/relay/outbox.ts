@@ -9,8 +9,10 @@
  * already had it, delivers the row; anything else is tried again later under
  * the same id, after 30 seconds, then a minute, two, and so on, and after
  * eight attempts the row is dead and shown to the owner with a way to try
- * again. A row a process took and never finished with is taken back after
- * ten minutes, under the same id. Order is kept per relay and link.
+ * again -- except a rotation of the deployment's key, which is tried hourly
+ * for as long as its relay is paired. A row a process took and never
+ * finished with is taken back after ten minutes, under the same id. Order is
+ * kept per relay and link.
  */
 import type { KeyObject } from 'node:crypto';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
@@ -29,6 +31,15 @@ export const RETRY_BASE_SECONDS = 30;
 export const MAX_ATTEMPTS = 8;
 /** How long a row may sit claimed before it is taken back: its process died. */
 export const STALE_SENDING_MINUTES = 10;
+/**
+ * The longest a rotation of the deployment's key waits between attempts. A
+ * `keys_rotated` is never given up on while its relay is paired: until the
+ * relay has it, the old key is kept and no other rotation may follow, so it
+ * is tried again hourly however long the relay is away, rather than dead
+ * after eight attempts and purged with the dead letters (STATUS section
+ * 2.216).
+ */
+export const ROTATION_RETRY_SECONDS = 3_600;
 
 /**
  * What this process counted, for the metrics scraper (`src/reporting/metrics.ts`):
@@ -365,15 +376,17 @@ async function sendOne(
     return 'delivered';
   }
   const attempts = row.attempts + 1;
-  const dead = attempts >= MAX_ATTEMPTS;
+  const rotation = row.type === 'keys_rotated';
+  const dead = !rotation && attempts >= MAX_ATTEMPTS;
+  const wait = RETRY_BASE_SECONDS * 2 ** Math.min(attempts - 1, 30);
   await withControlPlane(async (tx) => {
     await tx.query('UPDATE relays SET failures = failures + 1, last_error = $2 WHERE id = $1', [relay.id, failure]);
     await tx.query(
       `UPDATE relay_outbox
           SET status = $3, attempts = $2::int, claimed_at = NULL, last_error = $4,
-              next_at = $5::timestamptz + make_interval(secs => $6::int * power(2, $2::int - 1))
+              next_at = $5::timestamptz + make_interval(secs => $6::double precision)
         WHERE id = $1`,
-      [row.id, attempts, dead ? 'dead' : 'pending', failure, now, RETRY_BASE_SECONDS]);
+      [row.id, attempts, dead ? 'dead' : 'pending', failure, now, rotation ? Math.min(wait, ROTATION_RETRY_SECONDS) : wait]);
   });
   countDelivery(dead ? 'dead' : 'failed');
   return dead ? 'dead' : 'failed';

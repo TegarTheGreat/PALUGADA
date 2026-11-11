@@ -267,9 +267,11 @@ async function pullOnce(
  * The deployment's relay bookkeeping, once a day: receipts, refusals,
  * delivered envelopes and dead letters older than fourteen days; offers spent,
  * void or expired four days ago; codes nobody claimed; and the key rotated
- * out, once its week is over. It reaches every relay at once, so it skips a
- * row another transaction holds rather than wait for it: what it skips is
- * purged the next day.
+ * out, once its week is over and every paired relay has taken the rotation.
+ * A rotation still owed is never a dead letter (`ROTATION_RETRY_SECONDS`),
+ * so it is not purged before its relay has it. It reaches every relay at
+ * once, so it skips a row another transaction holds rather than wait for it:
+ * what it skips is purged the next day.
  */
 export async function relayBookkeeping(now = new Date()): Promise<{ receipts: number; refusals: number; outbox: number; offers: number; codes: number }> {
   const purged = await withControlPlane(async (tx) => {

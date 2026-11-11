@@ -568,7 +568,8 @@ async function press(relay: RelayRow, body: Body, envelopeId: string, now: Date)
   if (!relay.may_press) throw new Refusal(422, 'relay.press_off');
   if (typeof body.token !== 'string' || body.token.length > 200) throw new Refusal(422, 'relay.press_unknown');
   const answerText = typeof body.answer === 'string' ? body.answer : null;
-  if (answerText !== null && answerText.length > 2000) throw new Refusal(422, 'relay.press_unknown');
+  // Longer than any answer is taken: the body is malformed, whatever its token.
+  if (answerText !== null && answerText.length > 2000) throw new Refusal(422, 'relay.malformed');
 
   const hash = tokenHash(body.token as string);
   const redeemed = await withControlPlane(async (tx) => {
@@ -772,8 +773,11 @@ async function reply(relay: RelayRow, body: Body, envelopeId: string, now: Date)
       throw new Refusal(422, 'relay.client_id_used', offer.company_id);
     }
   });
-  const posted = await asThePerson(offer.company_id, () => postMessage(viewer, offer.room_id, { body: text, clientId, threadOf: offer.thread_of }));
-  return { status: 200, body: { ok: true, result: { message: posted.message.id } } };
+  await asThePerson(offer.company_id, () => postMessage(viewer, offer.room_id, { body: text, clientId, threadOf: offer.thread_of }));
+  // Answered with the relay's own client id, never the message's: a
+  // message's id is a thread's once someone answers it there, and no id of
+  // PALUGADA's reaches a relay (STATUS section 2.216).
+  return { status: 200, body: { ok: true, result: { clientId } } };
 }
 
 /**

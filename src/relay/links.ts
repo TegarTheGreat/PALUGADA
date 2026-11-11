@@ -27,6 +27,15 @@ export const LINK_CODE_MINUTES = 10;
 
 const CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
+/**
+ * The language a person reads PALUGADA in: their own where they chose one,
+ * the deployment's otherwise. What a relay is told of a person's own link is
+ * said in it, as a press's answer is (`src/relay/inbound.ts`). A fragment
+ * of SQL, the principal given by the placeholder named.
+ */
+const LANGUAGE_OF = (placeholder: string) =>
+  `coalesce((SELECT language FROM principal_prefs WHERE principal = ${placeholder}), console_language)`;
+
 /** A link code as kept: its hash under the relay it was offered through, so a code is good at one relay only. */
 export function codeHash(relayId: string, code: string): string {
   return createHash('sha256').update(`${relayId}:${code}`, 'utf8').digest('hex');
@@ -121,7 +130,7 @@ export async function claimLink(
 
   const companies = await companiesHeard(tx, relay, link.company_id);
   const { rows: [control] } = await tx.query<{ deployment: string; language: string | null }>(
-    'SELECT deployment_id::text AS deployment, console_language AS language FROM platform_control');
+    `SELECT deployment_id::text AS deployment, ${LANGUAGE_OF('$1')} AS language FROM platform_control`, [link.principal]);
   const language = control!.language;
   const id = envelopeId({ deployment: control!.deployment, relay: relay.id, link: link.id, type: 'link_confirmed', subject: link.id });
   await enqueue(tx, {
@@ -147,9 +156,10 @@ async function companiesHeard(tx: TenantClient, relay: RelayRow, companyId: stri
 /**
  * Why a link ended, as its relay is told: another device linked in its
  * place, the person or the owner unlinked it in PALUGADA, the seat ended,
- * or the relay ended it itself.
+ * the relay ended it itself, or the owner took the seat's company off the
+ * relay (STATUS section 2.216).
  */
-export type LinkEnding = 'replaced' | 'unlinked' | 'seat_ended' | 'relay';
+export type LinkEnding = 'replaced' | 'unlinked' | 'seat_ended' | 'relay' | 'company_dropped';
 
 /**
  * Ends links, and voids their offers and drops what they were owed and not
@@ -161,17 +171,18 @@ export type LinkEnding = 'replaced' | 'unlinked' | 'seat_ended' | 'relay';
  */
 export async function endLinks(tx: TenantClient, linkIds: readonly string[], now: Date, why: LinkEnding): Promise<void> {
   if (linkIds.length === 0) return;
-  const { rows: ended } = await tx.query<{ id: string; relay_id: string; recipient_id: string | null; claim_id: string | null; company_id: string | null }>(
+  const { rows: ended } = await tx.query<{
+    id: string; relay_id: string; principal: string; recipient_id: string | null; claim_id: string | null; company_id: string | null;
+  }>(
     `UPDATE relay_links SET status = 'ended', ended_at = $2 WHERE id = ANY($1::uuid[]) AND status <> 'ended'
-      RETURNING id, relay_id, recipient_id, claim_id, company_id`,
+      RETURNING id, relay_id, principal, recipient_id, claim_id, company_id`,
     [linkIds, now]);
   await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE link_id = ANY($1::uuid[]) AND voided_at IS NULL', [linkIds, now]);
   await tx.query(`DELETE FROM relay_outbox WHERE link_id = ANY($1::uuid[]) AND status IN ('pending', 'dead')`, [linkIds]);
   const told = ended.filter((one) => one.recipient_id !== null);
-  if (told.length === 0) return;
-  const { rows: [control] } = await tx.query<{ deployment: string; language: string | null }>(
-    'SELECT deployment_id::text AS deployment, console_language AS language FROM platform_control');
   for (const link of told) {
+    const { rows: [control] } = await tx.query<{ deployment: string; language: string | null }>(
+      `SELECT deployment_id::text AS deployment, ${LANGUAGE_OF('$1')} AS language FROM platform_control`, [link.principal]);
     const id = envelopeId({ deployment: control!.deployment, relay: link.relay_id, link: link.id, type: 'link_ended', subject: link.id });
     await enqueue(tx, {
       id, relayId: link.relay_id, linkId: link.id, companyId: link.company_id, type: 'link_ended', subjects: [`link:${link.id}`],

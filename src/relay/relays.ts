@@ -25,6 +25,7 @@ import { deploymentLanguages } from '../domain/language.ts';
 import type { MasterKey } from '../settings/store.ts';
 import { companyRef, envelopeBody, envelopeHeaders, envelopeId, lowerShare, narrowedEnvelope, SHARE_LEVELS, type Share } from './envelope.ts';
 import { signingKeys, type DeploymentIdentity } from './identity.ts';
+import { endLinks } from './links.ts';
 import { tokenHash } from './offers.ts';
 import { enqueue } from './outbox.ts';
 import { fingerprint, freshTimestamp, verifyV1a } from './signature.ts';
@@ -334,15 +335,20 @@ export async function pairRelay(
   relayId: string,
   terms: PairingTerms,
   master: MasterKey | null,
-  options: { fetch?: typeof fetch; now?: Date } = {},
+  options: { fetch?: typeof fetch; now?: Date; publicUrl?: string | null } = {},
 ): Promise<ReturnType<typeof relayView>> {
   const now = options.now ?? new Date();
   const { identity, keys } = await signingKeys(master, [], now);
   const relay = (await withControlPlane((tx) => relayRow(tx, relayId)))!;
   const requestId = randomUUID();
+  const key = identity.publicKey.toString('base64url');
   const request = {
     v: 1, id: requestId, type: 'pair_request', at: now.toISOString(), deployment: identity.deployment, relay: relayId,
-    key: identity.publicKey.toString('base64url'), kid: identity.kid, fingerprint: identity.fingerprint, versions: [1], name: 'PALUGADA',
+    key, kid: identity.kid, fingerprint: identity.fingerprint, versions: [1], name: 'PALUGADA',
+    // Where a relay that posts back reaches this deployment; null for one
+    // with no public address, which its relays are pulled from instead. A
+    // relay learns it from nowhere else (STATUS section 2.216).
+    inbound: inboundAddress(options.publicUrl ?? null, relayId),
   };
   const body = envelopeBody(request);
   await withControlPlane((tx) => tx.query('UPDATE relays SET pair_request_id = $2 WHERE id = $1', [relayId, requestId]));
@@ -393,9 +399,27 @@ export async function pairRelay(
         WHERE id = $1 AND status IN ('pending', 'paired') AND pair_request_id = $5 RETURNING *`,
       [relayId, now, terms.companies === 'all' ? [] : terms.companies, terms.companies === 'all', requestId, accepting, fingerprint(accepting)]);
     if (!rows[0]) throw refuse('it was paired or revoked meanwhile');
+    // The relay pinned the key this request carried: a rotation to that key
+    // it never took is owed no more, and would only be refused, since it
+    // names as the key it replaces one the relay no longer holds. Without
+    // this a relay paired again through a rotation it missed would be owed
+    // that rotation for as long as it is paired, and no rotation could
+    // follow (STATUS section 2.216).
+    await tx.query(
+      `DELETE FROM relay_outbox WHERE relay_id = $1 AND type = 'keys_rotated' AND status IN ('pending', 'sending', 'dead')
+          AND (body::jsonb->>'key') = $2`,
+      [relayId, key]);
+    // Paired again with fewer companies, it hears nothing more of the rest.
+    await holdToSettings(tx, rows[0], now);
     return rows[0];
   });
   return relayView(row);
+}
+
+/** The address a relay posts to, under the deployment's public address; null without one. */
+function inboundAddress(publicUrl: string | null, relayId: string): string | null {
+  if (!publicUrl) return null;
+  return `${publicUrl.replace(/\/+$/, '')}/api/relay/v1/relays/${relayId}/inbound`;
 }
 
 /** What a change of a relay's settings would set. */
@@ -485,13 +509,13 @@ function nextShares(before: Record<string, Share>, given: Record<string, Share |
  * Sets a relay's settings, and voids what they no longer allow: offers to
  * press once presses are off or the share falls to `signal`, offers to reply
  * once replies are off, and in a company the relay no longer hears about,
- * every offer and every envelope not yet sent. An envelope not yet sent is
- * made again at the new share, without the offers now void, rather than sent
- * at the old one or dropped: the owner was told through this relay as far as
- * the ledger knows, and a notice owed while the relay was down or behind is
- * still owed at the share the owner chose now.
+ * every offer, every envelope not yet sent and its people's links. An
+ * envelope not yet sent is made again at the new share, without the offers
+ * now void, rather than sent at the old one or dropped: the owner was told
+ * through this relay as far as the ledger knows, and a notice owed while the
+ * relay was down or behind is still owed at the share the owner chose now.
  */
-export async function applyRelaySettings(relayId: string, changes: RelayChanges): Promise<ReturnType<typeof relayView>> {
+export async function applyRelaySettings(relayId: string, changes: RelayChanges, now = new Date()): Promise<ReturnType<typeof relayView>> {
   return withControlPlane(async (tx) => {
     const before = await relayRow(tx, relayId, true);
     if (!before || before.status === 'revoked') throw new PalugadaError('contract.violation', 'there is no such relay', { relayId });
@@ -503,34 +527,59 @@ export async function applyRelaySettings(relayId: string, changes: RelayChanges)
         changes.mayPress ?? before.may_press, changes.mayPost ?? before.may_post, changes.mode ?? before.mode,
         JSON.stringify(nextShares(before.company_shares, changes.companyShares))]);
     const after = rows[0]!;
-    const acts: string[] = [];
-    if (!after.may_press || after.share === 'signal') acts.push('approve', 'deny', 'answer');
-    if (!after.may_post || after.share === 'signal') acts.push('reply');
-    if (acts.length > 0) {
-      await tx.query(
-        'UPDATE relay_offers SET voided_at = now() WHERE relay_id = $1 AND voided_at IS NULL AND act = ANY($2::text[])', [relayId, acts]);
-    }
-    // A company told only that something happened is offered nothing to
-    // press or reply with, as a relay at `signal` is not.
-    const quiet = Object.keys(after.company_shares).filter((company) => companyShare(after, company) === 'signal');
-    if (quiet.length > 0) {
-      await tx.query(
-        `UPDATE relay_offers SET voided_at = now()
-          WHERE relay_id = $1 AND voided_at IS NULL AND company_id = ANY($2::uuid[]) AND act IN ('approve', 'deny', 'answer', 'reply')`,
-        [relayId, quiet]);
-    }
-    if (!after.all_companies) {
-      await tx.query(
-        'UPDATE relay_offers SET voided_at = now() WHERE relay_id = $1 AND voided_at IS NULL AND NOT (company_id = ANY($2::uuid[]))',
-        [relayId, after.companies]);
-      await tx.query(
-        `DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'dead')
-           AND company_id IS NOT NULL AND NOT (company_id = ANY($2::uuid[]))`,
-        [relayId, after.companies]);
-    }
-    await narrowOwed(tx, after);
+    await holdToSettings(tx, after, now);
     return relayView(after);
   });
+}
+
+/**
+ * Voids, in the caller's transaction, whatever a relay's settings as they
+ * now stand no longer allow, the caller holding the relay's row: offers to
+ * press once presses are off or the share is `signal`, offers to reply once
+ * replies are off, and in a company it no longer hears about every offer,
+ * every envelope not yet sent, and the links of that company's people, each
+ * told to the relay as ended so it forgets their devices. What is still owed
+ * is made again at what its company may be told now. A change of settings
+ * and a pairing again in place with fewer companies both narrow so (STATUS
+ * section 2.216), so a relay hears nothing more of a company the owner took
+ * it off, whichever way the owner did.
+ */
+async function holdToSettings(tx: TenantClient, after: RelayRow, now: Date): Promise<void> {
+  const acts: string[] = [];
+  if (!after.may_press || after.share === 'signal') acts.push('approve', 'deny', 'answer');
+  if (!after.may_post || after.share === 'signal') acts.push('reply');
+  if (acts.length > 0) {
+    await tx.query(
+      'UPDATE relay_offers SET voided_at = $3 WHERE relay_id = $1 AND voided_at IS NULL AND act = ANY($2::text[])', [after.id, acts, now]);
+  }
+  // A company told only that something happened is offered nothing to
+  // press or reply with, as a relay at `signal` is not.
+  const quiet = Object.keys(after.company_shares).filter((company) => companyShare(after, company) === 'signal');
+  if (quiet.length > 0) {
+    await tx.query(
+      `UPDATE relay_offers SET voided_at = $3
+        WHERE relay_id = $1 AND voided_at IS NULL AND company_id = ANY($2::uuid[]) AND act IN ('approve', 'deny', 'answer', 'reply')`,
+      [after.id, quiet, now]);
+  }
+  if (!after.all_companies) {
+    await tx.query(
+      'UPDATE relay_offers SET voided_at = $3 WHERE relay_id = $1 AND voided_at IS NULL AND NOT (company_id = ANY($2::uuid[]))',
+      [after.id, after.companies, now]);
+    await tx.query(
+      `DELETE FROM relay_outbox WHERE relay_id = $1 AND status IN ('pending', 'dead')
+         AND company_id IS NOT NULL AND NOT (company_id = ANY($2::uuid[]))`,
+      [after.id, after.companies]);
+    // A seat's link hears about its own company alone: through a relay that
+    // no longer hears about it, the link would be told nothing and could do
+    // nothing, while the relay kept its device for no one.
+    const { rows: unheard } = await tx.query<{ id: string }>(
+      `SELECT id FROM relay_links WHERE relay_id = $1 AND status <> 'ended'
+          AND company_id IS NOT NULL AND NOT (company_id = ANY($2::uuid[]))
+          FOR UPDATE`,
+      [after.id, after.companies]);
+    await endLinks(tx, unheard.map((one) => one.id), now, 'company_dropped');
+  }
+  await narrowOwed(tx, after);
 }
 
 /**

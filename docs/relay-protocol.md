@@ -23,8 +23,10 @@ that same person.
 history, a membership, or another person's items. A room appears to it only
 in a person's own notice about it: not at all at `signal`, and from `summary`
 by its name and who wrote there, by name and handle, which is what the relay
-shows that person. No company, room, thread, item or task id ever reaches a
-relay: a notice's link names a handle made for that notice alone (section 6),
+shows that person. No company, room, thread, item, task or message id ever
+reaches a relay, in an envelope or in an answer: a notice's link names a
+handle made for that notice alone (section 6), and a reply is answered with
+the relay's own `clientId` (section 9.3),
 which PALUGADA resolves only for the person it was for, once they have signed
 in. Reading, scrolling back and choosing what to open happen in PALUGADA
 itself, which every notice links to. A mirror can be added inside v1 later,
@@ -32,7 +34,7 @@ because v1 only ever adds (section 11).
 
 **Never sent:** secrets, file bytes (a link at most), prompts, transcripts,
 what customers wrote, room lists, history, membership, another person's
-items, or the id of a company, room, thread, item or task.
+items, or the id of a company, room, thread, item, task or message.
 
 **Never accepted:** an assignment, an instruction, anything at tier 3, a
 standing approval ("yes for a while"), a schedule, a meeting, a room or a
@@ -88,8 +90,13 @@ the old one's, and every paired relay is sent a `keys_rotated` envelope that
 both sign. The deployment keeps the old key, and signs each `keys_rotated`
 with it, until every paired relay has taken its rotation, however long that
 is: a relay that was down for the week is still sent a rotation it can
-verify with the key it pinned. A second rotation is refused while any
-paired relay has not taken the first. A relay MUST take the new key only
+verify with the key it pinned. A `keys_rotated` is never given up on while
+its relay is paired: it is tried again with the backoff of section 7, at
+most an hour apart, until the relay answers it `2xx`, and is never purged
+unsent. A relay paired again in place (section 5) is sent the deployment's
+current key in its `pair_request`, so a rotation to that key it missed is
+owed to it no more. A second rotation is refused while any paired relay has
+not taken the first. A relay MUST take the new key only
 from a `keys_rotated` that
 
 - verifies with the key it pinned now -- not a key rotated out and still in
@@ -106,7 +113,8 @@ pinned for good.
 **A relay that can verify nothing.** A relay that holds no key that verifies
 what the deployment sends -- it missed a rotation, or lost its state --
 answers `401` to every envelope, which PALUGADA tries again with backoff and
-then shows the owner as given up. Its operator pins the deployment's current
+then shows the owner as given up, its rotation apart, which is tried hourly
+for as long as it is paired. Its operator pins the deployment's current
 fingerprint, which the owner reads in the console, and the owner pairs the
 relay again in place (section 5): the same relay id and salt, so every
 person keeps their pseudonym and their link.
@@ -181,7 +189,10 @@ A receiver takes a message when any one of its signatures verifies with a key
 it holds for the sender. It MUST refuse a message none of whose signatures
 verifies, and one signed more than 300 seconds from its own clock, either
 way. A receiver MUST NOT take an HMAC (`v1`) signature in place
-of a `v1a` one.
+of a `v1a` one. A sender MUST NOT put more than four signatures in one
+header; PALUGADA takes a header with more as unsigned, without checking
+any of them, and a relay SHOULD do the same, so a stranger cannot make it
+verify signatures without end.
 
 ## 5. Discovery and pairing
 
@@ -204,14 +215,19 @@ of a `v1a` one.
 
    `envelopes` and `inbox` MUST share the scheme, host and port of the
    address the owner gave. `inbox` is optional; without it the relay is
-   pushed to and posts back (push mode). PALUGADA pins `key` and shows its
-   fingerprint.
+   pushed to and posts back (push mode), to the address the `pair_request`
+   names as `inbound` (step 4). A deployment with no public address names
+   none (`null`), and a relay paired with it MUST offer an `inbox` to be
+   pulled from, since it has nowhere to post. PALUGADA pins `key` and shows
+   its fingerprint.
 3. The relay's operator shows the owner the relay's fingerprint. The owner
    types at least its first 16 characters, names the companies the relay may
    hear about (or chooses every company, later ones too, deliberately), and
    proves a second factor given now.
-4. PALUGADA posts a `pair_request` (section 6) to `envelopes`, signed with
-   its key. The relay MUST answer `200` with the body
+4. PALUGADA posts a `pair_request` (section 6.3) to `envelopes`, signed with
+   its key. It carries the deployment's key, which the relay pins, and
+   `inbound`, the address the relay posts to (section 9). The relay MUST
+   answer `200` with the body
 
    ```json
    { "pair_accept": { "request": "<the request's id>", "deployment": "<its deployment>", "relay": "<its relay>", "at": "<ISO 8601>" } }
@@ -240,7 +256,11 @@ or one whose key changed other than by `relay_key_rotated`. PALUGADA reads
 its well-known document again, the owner types the fingerprint of the key it
 gives now as at pairing, with a second factor given now, and PALUGADA sends a
 `pair_request` whose accept must be signed by that key. The new key is pinned
-from then; the one before is no longer taken.
+from then; the one before is no longer taken. The companies the owner names
+then replace the ones before: a company left out is narrowed away as a
+change of settings narrows it (section 7), its offers void, what was owed
+of it not sent, and its people's links ended (`link_ended`, reason
+`company_dropped`).
 
 **Revocation** is immediate: everything the relay signs is answered `401`,
 its offers are void, what it was owed and not yet sent is dropped, and every
@@ -313,8 +333,12 @@ it starts; and the title its setter wrote only at `content`.
 #### `pair_request`
 
 Sent once, at pairing (section 5), and never through the outbox.
-`{ v, id, type, at, deployment, relay, key, kid, fingerprint, versions, name }`.
-`id` is fresh for each pairing attempt.
+`{ v, id, type, at, deployment, relay, key, kid, fingerprint, versions, name, inbound }`,
+each at the top level. `id` is fresh for each pairing attempt. `key` is the
+deployment's current key, which the relay pins. `inbound` is the address
+the relay posts what it sends to (section 9), the deployment's public
+address followed by `/api/relay/v1/relays/<relay id>/inbound`, or `null`
+when the deployment has none, in which case the relay is pulled from.
 
 #### `ping`
 
@@ -328,12 +352,20 @@ A link stands (section 8). `to` names the person; `data` is
 #### `keys_rotated`
 
 The deployment's key changed (section 2.3). `{ key, kid, fingerprint, previous: { key, kid, until } }`,
-signed with both keys. A relay takes it only when the key it pinned now and
-`key` both verify it, and `previous.key` is the key it pinned now.
+each at the top level of the envelope beside `v`, `id` and the rest, not in
+`data`. It is signed with both keys, and a relay takes it only when the key
+it pinned now and `key` both verify it, and `previous.key` is the key it
+pinned now.
 
 #### `inbox_item`
 
-Something in the owner's inbox. `data` is `{ kind, tier }` at `signal`; adds
+Something in the owner's inbox, or put to a seat (below). `data.kind` is
+what it is: `approval`, a decision; `escalation`, a question a run asked or
+a matter handed up; `incident`, something that went wrong;
+`budget_alert`, money running out; and `sop_candidate`, `skill_candidate`
+or `fact_candidate`, something the company learned for the owner to keep or
+drop. A relay SHOULD show a kind it does not know as a plain notice. `data`
+is `{ kind, tier }` at `signal`; adds
 `title` at `summary`; adds `summary`, `ifDenied`, `expiresAt` and, for a
 question a run asked, `question`, `options` and `asker`, at `content`.
 `offers` carries what may be pressed:
@@ -346,7 +378,8 @@ question a run asked, `question`, `options` and `asker`, at `content`.
   nothing, at every share level.
 
 Offers are made only at `summary` and above, only when the owner turned
-presses on for the relay, and only to a link that has a device key.
+presses on for the relay, and, for the owner's link, only one that has a
+device key; a seat's link is offered them with or without one.
 
 #### `inbox_closed`
 
@@ -419,8 +452,10 @@ thread.
 
 A person's link through this relay ended in PALUGADA: they linked another
 device through the same relay (`replaced`), they or the owner unlinked it
-(`unlinked`), their seat ended (`seat_ended`), or the relay itself sent
-`link_end` (`relay`). `to` names the person; `data` is
+(`unlinked`), their seat ended (`seat_ended`), the relay itself sent
+`link_end` (`relay`), or the owner took their company off the relay
+(`company_dropped`). A relay MUST treat a reason it does not know as it
+treats the rest. `to` names the person; `data` is
 `{ "claim": "<the link_claim envelope's id that made the link>", "reason" }`,
 `claim` `null` for a link made before PALUGADA kept it; `text` says the phone
 is no longer linked. A relay MUST forget the device key that link was made
@@ -463,7 +498,9 @@ that one is taken at a later pull.
   id it already has.
 - **Anything else is tried again** under the same id, after 30 seconds, then
   1, 2, 4, 8, 16 and 32 minutes. After eight attempts the envelope is given
-  up and shown to the owner, who may send it again.
+  up and shown to the owner, who may send it again. A `keys_rotated` is the
+  exception: it is never given up while its relay is paired, and is tried
+  again at most an hour apart until the relay takes it (section 2.3).
 - **A send cut off** -- the deployment stopped before it learned the answer --
   is sent again after ten minutes, under the same id.
 - **Order** is kept for each person: a later envelope for one link waits
@@ -473,7 +510,10 @@ that one is taken at a later pull.
   when the owner narrows what a relay is told, or what one company's notices
   may say there (section 6.1), is made again at the new share, without the
   offers no longer allowed, under the same id; one for a company the relay
-  no longer hears about is not sent. A notice of an item that closed before
+  no longer hears about is not sent, whether the owner narrowed its
+  companies in its settings or paired it again in place naming fewer, and
+  the links of that company's people through it end, each told to the relay
+  as `link_ended`. A notice of an item that closed before
   it was sent is not sent at all, and nor is its `inbox_closed`.
 - **Who may see is asked again as it is sent.** A `room_activity` or
   `meeting_soon` whose person can no longer see its room -- taken out of a
@@ -574,7 +614,8 @@ person against the relay.
 
 ## 9. What a relay sends
 
-**Push.** `POST /api/relay/v1/relays/<relay id>/inbound` on the deployment, one
+**Push.** `POST /api/relay/v1/relays/<relay id>/inbound` on the deployment,
+at the address its `pair_request` named as `inbound` (section 6.3), one
 envelope a request, at most 64 KiB, signed with the relay's key in the headers
 of section 4. A request that verifies, now, with the key of a relay paired
 here counts against that relay's sixty a minute and nothing else. Any other
@@ -684,8 +725,16 @@ signature PALUGADA already took, under another envelope id),
 `relay.owner_device`, `relay.not_member`, `relay.seat_changed`,
 `relay.post_off`, `relay.link_unknown`, `relay.client_id_used` (a reply's
 `clientId` the person used before for other words or another room or
-thread), and `relay.malformed` for a body holding text PALUGADA cannot keep
-(the NUL character, `\u0000`, anywhere in a name or a value). A refusal by
+thread), `relay.key_unproven` (a `relay_key_rotated` not signed by both
+keys, or naming another key as the one it replaces, section 9.3), and
+`relay.malformed` for a body PALUGADA cannot take as it stands: text it
+cannot keep (the NUL character, `\u0000`, anywhere in a name or a value), a
+press's `answer` over 2,000 characters, a reply's `body` empty or over
+4,000 characters or its `clientId` outside 1 to 64 characters, a mute's
+`until` that is not a time within thirty days nor `null`, or a
+`relay_key_rotated` whose `key` is not 32 bytes or whose `until` is not a
+time. A token that is no string, or longer than 200 characters, is
+`relay.press_unknown`. A refusal by
 the room itself is answered with the room's own code (such as
 `room.not_member` when the person has left it). An answer never repeats
 what an item says.
@@ -729,7 +778,8 @@ through this relay, unspent and unexpired (`relay.press_unknown`,
 no other, whatever else the body says: a plain message from that person,
 marked as come through the relay. It is never work, never an instruction to
 work, and never the owner's words given as work; the person must still be in
-the room. Answered with `{ message }`, the message's id.
+the room. Answered with `{ clientId }`, the reply's own: never the
+message's id, which would name a thread once someone answered it there.
 
 #### `read`
 

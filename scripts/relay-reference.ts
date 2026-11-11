@@ -104,8 +104,12 @@ function signed(seeds: readonly Buffer[], id: string, timestamp: string, payload
 
 /** Whether any `v1a` signature in the header verifies with any of the keys. */
 function verified(header: string, keys: readonly string[], id: string, timestamp: string, payload: string): boolean {
+  // More signatures than any sender needs verifies nothing (section 4), so
+  // nobody can make this relay check signatures without end.
+  const parts = header.split(' ');
+  if (parts.length > 4) return false;
   const content = Buffer.from(`${id}.${timestamp}.${payload}`, 'utf8');
-  return header.split(' ').some((part) => part.startsWith('v1a,') && keys.some((key) => {
+  return parts.some((part) => part.startsWith('v1a,') && keys.some((key) => {
     try {
       return verify(null, content, publicFrom(Buffer.from(key, 'base64url')), Buffer.from(part.slice(4), 'base64'));
     } catch {

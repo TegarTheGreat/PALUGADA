@@ -48,6 +48,8 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/relay/` | relay protocol v1: the deployment's identity, canonical JSON and signatures, pairing, links, offers, the outbox and its loop, what a relay sends back, and a person's own notices as envelopes (`people.ts`) |
 | `docs/relay-protocol.md` | the relay protocol, for whoever builds a relay, with its test vectors; `scripts/relay-reference.ts` is the reference relay (`npm run relay:reference`) |
 | `src/owner/member-notify.ts` | people's notices: who is told of what and when, planned under the delivery reader and read again as the person before it is sent; the sentences are `src/owner/people-said.ts` |
+| `src/workspace/people-meetings.ts` | people's meetings: a person's own message given a time, the people asked and a pasted call link; the rooms' sweep (`src/workspace/cards.ts`) reminds the people asked, and people's notices tell their phones |
+| `console/src/workspace/MeetingPanel.tsx` | a people's meeting drawn under its message, with its call link; `console/src/workspace/SetMeeting.tsx` is the dialog that sets or changes one |
 | `docs/phones.md` | how the owner puts people's notices on their staff's phones: the reference relay, a private ntfy, one topic a person, Link a phone |
 | `src/records/` | the company's own records: the people it deals with (contacts, notes, deals), its books and the invoices kept in them |
 | `src/duties/` | office work the platform does itself, with no model, from what the company's records say: a task whose key starts `duty:` runs a procedure here under a role's grants (collections: overdue invoices are reminded) |

@@ -4,7 +4,8 @@
  * The owner's items go to a relay as the owner's channel (`channel.ts`); a
  * person's own notices -- their direct messages and mentions, a reply in a
  * thread they follow, a run's question put to them, an approval they may
- * decide, work they asked for -- are planned and composed by the people's
+ * decide, work they asked for, a meeting of people they were asked to that
+ * is about to start -- are planned and composed by the people's
  * notices (`src/owner/member-notify.ts`) and written here into the outbox,
  * one envelope per notice and link, at the lower of the relay's share and
  * the person's own.
@@ -51,7 +52,7 @@ export interface PeopleNotice {
   id: string;
   companyId: string;
   principal: string;
-  type: 'room_activity' | 'inbox_item' | 'work_done';
+  type: 'room_activity' | 'inbox_item' | 'work_done' | 'meeting_soon';
   subjects: string[];
   language: string;
   link: string | null;
@@ -64,6 +65,12 @@ export interface PeopleNotice {
   room?: { roomId: string; threadOf: string | null; position: number; messageId: string | null };
   /** A question or an approval, and whether the seat may answer or decide it now. */
   item?: { id: string; question: boolean; options: readonly string[] | null; tier: number | null; expiresAt: Date | null; mayAct: boolean };
+  /**
+   * The message whose words a notice that is not about a room's words carries:
+   * a people's meeting's title (STATUS section 2.215), held against a delete
+   * on its way as a room's words are.
+   */
+  words?: string;
 }
 
 interface LinkRow {
@@ -89,13 +96,14 @@ export async function relayPeopleNotice(relayId: string, notice: PeopleNotice, n
         WHERE relay_id = $1 AND principal = $2 AND status = 'active' AND (company_id IS NULL OR company_id = $3)`,
       [relayId, notice.principal, notice.companyId]);
     if (!link) return null;
-    if (notice.room?.messageId) {
+    const held = notice.room?.messageId ?? notice.words ?? null;
+    if (held) {
       // Held against a delete on its way: a delete waits for this to commit
       // and then retracts what it wrote, or commits first and this sees it.
       // Only whether it was deleted is read here, never what it said.
       const { rows } = await tx.query(
         'SELECT 1 FROM room_messages WHERE company_id = $1 AND id = $2 AND deleted_at IS NULL FOR SHARE',
-        [notice.companyId, notice.room.messageId]);
+        [notice.companyId, held]);
       if (rows.length === 0) return null;
     }
     const deployment = await deploymentOf(tx);
@@ -235,10 +243,12 @@ export async function retractMessages(companyId: string, messageIds: readonly st
  * as a delete would. Answers what `retractMessages` did.
  */
 export async function retractRemoved(companyId: string, now = new Date()): Promise<{ dropped: number; retracted: number }> {
+  // A people's meeting's reminder carries its message's words too (STATUS section 2.215).
   const { rows } = await withControlPlane((tx) => tx.query<{ id: string }>(
     `SELECT DISTINCT substr(s.subject, 9) AS id
        FROM relay_outbox o CROSS JOIN LATERAL unnest(o.subjects) AS s(subject)
-      WHERE o.company_id = $1 AND o.type = 'room_activity' AND o.link_id IS NOT NULL AND s.subject LIKE 'message:%'
+      WHERE o.company_id = $1 AND (o.type = 'room_activity' OR o.type = 'meeting_soon') AND o.link_id IS NOT NULL
+        AND s.subject LIKE 'message:%'
         AND NOT EXISTS (SELECT 1 FROM room_messages m
                          WHERE m.company_id = $1 AND m.id = substr(s.subject, 9)::uuid AND m.deleted_at IS NULL)
         AND (o.status IN ('pending', 'dead') OR NOT EXISTS (

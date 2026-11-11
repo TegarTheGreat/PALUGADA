@@ -110,14 +110,15 @@ export interface SendReport {
 
 /**
  * A person's notice whose message was deleted or retention took it since it
- * was owed (STATUS section 2.213). It is not taken to send, whatever brought
+ * was owed (STATUS section 2.213), or a people's meeting's reminder whose
+ * title was (STATUS section 2.215). It is not taken to send, whatever brought
  * it here: owed when the delete committed and before its retraction ran, put
  * back after a send that failed, or tried again from the dead letters. The
  * notify stage's next pass drops it and voids its tokens
  * (`retractRemoved`, src/relay/people.ts); until then it waits unsent, and
  * holds back nothing behind it.
  */
-const REMOVED_WORDS = `o.type = 'room_activity' AND EXISTS (
+const REMOVED_WORDS = `(o.type = 'room_activity' OR o.type = 'meeting_soon') AND EXISTS (
   SELECT 1 FROM unnest(o.subjects) AS s(subject)
    WHERE s.subject LIKE 'message:%'
      AND NOT EXISTS (SELECT 1 FROM room_messages m

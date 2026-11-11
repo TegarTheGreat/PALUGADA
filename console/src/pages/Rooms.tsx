@@ -1,7 +1,8 @@
 /**
- * Rooms: where the owner and the staff talk, and ask the company for work
- * or call a meeting of its agents where they talk (F19.1, F19.3 to F19.8,
- * F19.10, F19.16, F19.18, F19.21; STATUS 2.207, 2.211).
+ * Rooms: where the owner and the staff talk, ask the company for work, call
+ * a meeting of its agents and meet one another where they talk (F19.1, F19.3
+ * to F19.8, F19.10, F19.16, F19.18, F19.21, F19.26; STATUS 2.207, 2.211,
+ * 2.215).
  *
  * Three panes on a wide screen -- the rail, the room, and a thread beside
  * it -- after the inbox's list and detail. Between a tablet's width and a
@@ -36,6 +37,7 @@ import { disclosureOf } from '../workspace/disclosure.ts';
 import { CallMeeting } from '../workspace/MeetingCard.tsx';
 import { NewMessage } from '../workspace/NewMessage.tsx';
 import { NewRoom } from '../workspace/NewRoom.tsx';
+import { SetMeeting } from '../workspace/SetMeeting.tsx';
 import { RoomInfo } from '../workspace/RoomInfo.tsx';
 import { SearchPanel } from '../workspace/SearchPanel.tsx';
 import { SlackInvite } from '../workspace/ImportSlack.tsx';
@@ -78,6 +80,8 @@ export function Rooms({ ctx, route }: PageProps) {
   // What a meeting is being called about; null while the dialog is closed. Held here, above the room that is read
   // again and the composer that is drawn again with it, so a refusal and the topic typed stay while the room moves.
   const [calling, setCalling] = useState<{ message: MessageView } | null>(null);
+  // The people's meeting being set or changed (STATUS 2.215), held here for the same reason.
+  const [setting, setSetting] = useState<{ roomId: string; message: MessageView | null } | null>(null);
   const [making, setMaking] = useState(false);
   const [writing, setWriting] = useState<string[] | null>(null);
   // What the rail's search asked for: the page's memory only, never the browser's.
@@ -139,6 +143,7 @@ export function Rooms({ ctx, route }: PageProps) {
     openThread: (messageId) => { if (roomId) select(`${roomId}~${messageId}`); },
     askWork: (message) => setAsking({ message }),
     callMeeting: (message) => setCalling({ message }),
+    setMeeting: (room, message) => setSetting({ roomId: room, message }),
     changed,
     tick,
   } : null), [ctx, companyId, me, owner, shownRoom, people.data, phone, roomId, select, changed, tick]);
@@ -239,6 +244,7 @@ export function Rooms({ ctx, route }: PageProps) {
       </Box>
       <AskWork asking={asking} close={() => setAsking(null)} />
       <CallMeeting calling={calling} close={() => setCalling(null)} />
+      <SetMeeting setting={setting} close={() => setSetting(null)} />
       <NewRoom opened={making} close={() => setMaking(false)} made={(id) => select(id)} />
       <NewMessage opened={writing !== null} chosen={writing ?? []} close={() => setWriting(null)} made={(id) => select(id)} />
     </ScopeContext.Provider>
@@ -274,12 +280,13 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
   const [joining, setJoining] = useState(false);
 
   // Once a message is kept: asked about, when "Ask the team" posted it; a meeting called about it, when "Call a
-  // meeting about this" did; read again either way.
+  // meeting about this" did; a people's meeting set from it, when "Set a meeting" did; read again either way.
   const kept = useCallback((message: MessageView, pending: Pending) => {
     if (pending.then === 'ask') scope.askWork(message);
     if (pending.then === 'meeting') scope.callMeeting(message);
+    if (pending.then === 'set_meeting') scope.setMeeting(message.roomId, message);
     scope.changed();
-  }, [scope.askWork, scope.callMeeting, scope.changed]);
+  }, [scope.askWork, scope.callMeeting, scope.setMeeting, scope.changed]);
   const posting = usePosting(scope.companyId, roomId, kept);
   const failed = (failure: unknown) => notifications.show({ color: 'red', message: explain(failure) });
   const send = (sent: Sent) => {
@@ -306,6 +313,15 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
   // words are the person's, and stay in the room whether or not the meeting is called.
   const meet = (body: string) => {
     void posting.start({ body, mentions: [], mentionsRoom: false, alsoInRoom: false, threadOf: null, then: 'meeting' }).catch(failed);
+  };
+  // A people's meeting (STATUS 2.215): words typed are posted the same way, and the dialog opens on the message once
+  // it is kept; with none (`/meet` alone), the dialog opens empty, and its own words are posted when it sets one.
+  const setMeeting = (body: string) => {
+    if (!body) {
+      scope.setMeeting(roomId, null);
+      return;
+    }
+    void posting.start({ body, mentions: [], mentionsRoom: false, alsoInRoom: false, threadOf: null, then: 'set_meeting' }).catch(failed);
   };
   const shown = useCallback((messages: MessageView[]) => {
     const mine = [...messages].reverse().find((one) => one.author.principal === scope.me && one.may.edit);
@@ -367,6 +383,7 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
           send={send}
           ask={ask}
           meet={meet}
+          setMeeting={setMeeting}
           {...(lastMine ? { editLast: () => setEditing(lastMine) } : {})}
         />
       )}

@@ -61,10 +61,13 @@ export type CardView = {
   may: { answer: boolean; decide: boolean; stop: boolean; tell: boolean; join: boolean }; inInbox: boolean;
 };
 
-/** A meeting people set in a room: a time, the people asked, a pasted call link. */
+/**
+ * A meeting people set in a room (F19.26): a time, the people asked, a pasted call link. Its title and agenda are
+ * its message's words, and its thread is the notes; a cancelled one says who cancelled it.
+ */
 export type PeopleMeetingView = {
   id: string; startsAt: string; minutes: number; attendees: PersonRef[]; callUrl: string | null;
-  setBy: PersonRef; cancelled: boolean; may: { change: boolean };
+  setBy: PersonRef; cancelled: boolean; cancelledBy: PersonRef | null; may: { change: boolean };
 };
 
 /** A message: a person's words, a card, or a coded notice the console says in the reader's language. */
@@ -91,10 +94,11 @@ export type ThreadView = { root: MessageView; replies: MessageView[]; following:
 
 /**
  * What asks for a person's attention, newest first. A message in a thread
- * names its thread, so it opens where it is read, and is seen there.
+ * names its thread, so it opens where it is read, and is seen there. A
+ * meeting is the reminder of a people's meeting about to start (F19.26).
  */
 export type ActivityItem =
-  | { kind: 'mention' | 'reply' | 'card'; roomId: string; messageId: string; threadOf: string | null; at: string; seen: boolean }
+  | { kind: 'mention' | 'reply' | 'card' | 'meeting'; roomId: string; messageId: string; threadOf: string | null; at: string; seen: boolean }
   | { kind: 'question' | 'team_item'; itemId: string; taskId: string | null; at: string }
   | { kind: 'work_done'; taskId: string; state: string; at: string };
 

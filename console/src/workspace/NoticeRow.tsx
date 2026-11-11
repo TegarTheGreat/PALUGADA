@@ -6,6 +6,7 @@
  */
 import { Group, Text } from '@mantine/core';
 import { IconInfoCircle } from '@tabler/icons-react';
+import { dateTime } from '../format.ts';
 import { N, t } from '../i18n.ts';
 
 /** What each notice says, by its code (src/workspace/cards.ts). */
@@ -18,13 +19,16 @@ const NOTICES: Record<string, string> = {
   refused_project: N('Not started: that project cannot take this work.'),
   recorded: N('Recorded. It reads this when its next run starts.'),
   queued: N('Still queued: the role is busy with other work, and starts this when it is free.'),
+  // A people's meeting about to start (STATUS 2.215), in its own thread, which is its notes.
+  meeting_soon: N('The meeting starts in ten minutes, at {time}.'),
 };
 
 export function noticeSaid(notice: { code: string; values: Record<string, unknown> }): string {
   const sentence = NOTICES[notice.code];
   if (!sentence) return t('A notice from PALUGADA.');
   const role = typeof notice.values.role === 'string' && notice.values.role ? notice.values.role : t('the role');
-  return t(sentence, { role });
+  const time = typeof notice.values.startsAt === 'string' ? dateTime(notice.values.startsAt) : '';
+  return t(sentence, { role, time });
 }
 
 export function NoticeRow({ notice }: { notice: { code: string; values: Record<string, unknown> } }) {

@@ -1177,3 +1177,16 @@ The first version. What it holds, in the order an owner meets it.
   reported line by line, and an export that unpacks past what PALUGADA
   reads is refused. The upload is kept beside the company's files, where no
   agent reaches it, until it is read, and a week at most (STATUS 2.214).
+- People meet people: anyone in a room sets a meeting from their own words
+  there, with the Meeting button or `/meet` (`/rapat`), giving it a time, a
+  length, the people asked -- only people who can see the room -- and a call
+  link pasted in, which PALUGADA never opens. The words are its title and
+  agenda and its thread is the notes. The people asked are reminded ten
+  minutes before it starts, in its thread, in their Activity and on a
+  linked phone, and only while they can still see the room: once, and once
+  more if it moves, never more. Whoever set it, or you, can move it, fix its
+  link or its people while it is under way, or cancel it; a cancelled
+  meeting reminds nobody, and removing its words cancels it and takes the
+  link with them. A meeting is not work: no agent sees it, its words are
+  never given as work, nothing is spent, and it travels with the company's
+  export (STATUS 2.215).

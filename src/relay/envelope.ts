@@ -12,7 +12,7 @@
  * and a company the same way, so two relays cannot join what each knows.
  */
 import { createHash, createHmac, type KeyObject } from 'node:crypto';
-import { somethingNewSaid } from '../owner/people-said.ts';
+import { meetingSoonSaid, somethingNewSaid } from '../owner/people-said.ts';
 import { closedSaid, digestSaid, doneSaid, itemSaid } from '../owner/relay-said.ts';
 import { jcs } from './canonical.ts';
 import { base32, signV1a } from './signature.ts';
@@ -35,6 +35,8 @@ export const OUTBOUND_TYPES = [
   // to them, and the words withdrawn again when they were deleted.
   'room_activity',
   'room_activity_retracted',
+  // A people's meeting about to start, to the people asked (STATUS section 2.215).
+  'meeting_soon',
 ] as const;
 export type OutboundType = (typeof OUTBOUND_TYPES)[number];
 
@@ -164,6 +166,14 @@ export function narrowedEnvelope(
         : { reasons: data.reasons, count: data.count, room: data.room, authors: data.authors };
       next.text = share === 'signal' ? somethingNewSaid(language) : String(envelope.text ?? '').split('\n')[0]!;
       next.offers = kept;
+      break;
+    }
+    case 'meeting_soon': {
+      // When and where above `signal`, the setter's words as its title only
+      // at `content`, and at `signal` only that a meeting is soon.
+      const data = (envelope.data ?? {}) as { room?: unknown; startsAt?: unknown; minutes?: unknown };
+      next.data = share === 'signal' ? {} : { room: data.room, startsAt: data.startsAt, minutes: data.minutes };
+      next.text = share === 'signal' ? meetingSoonSaid(language, null) : String(envelope.text ?? '').split('\n')[0]!;
       break;
     }
     case 'room_activity_retracted':

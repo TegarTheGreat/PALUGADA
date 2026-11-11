@@ -123,14 +123,24 @@ const WORK_DONE_DAYS = 7;
  * approver who cannot see the room the work was asked in learns nothing of
  * it; and the work they pressed for that ended in the last week. A reply,
  * a mention in a thread and a card name the thread they are in, since that
- * is where they are read and so seen.
+ * is where they are read and so seen; so does a people's meeting about to
+ * start, whose reminder is in its thread.
  */
 export async function activityOf(viewer: Viewer): Promise<ActivityItem[]> {
   const me = viewer.person.principal;
+  // A people's meeting's reminder (STATUS 2.215) is said as the meeting it is
+  // to the people asked: the card's attention the sweep gave them, or a reply
+  // in a thread they follow when they follow it, as its setter always does.
+  // Someone who follows its thread, its notes, and was not asked has it as
+  // every reply there: a reply in a thread they follow.
   const inRooms = await withPeople(viewer.companyId, viewer.person, async (tx) => (await tx.query<{
-    reason: 'mention' | 'reply' | 'card'; room_id: string; message_id: string; thread_of: string | null; created_at: Date; seen: boolean;
+    reason: 'mention' | 'reply' | 'card' | 'meeting'; room_id: string; message_id: string; thread_of: string | null; created_at: Date; seen: boolean;
   }>(
-    `SELECT n.reason, m.room_id, n.message_id, m.thread_of, n.created_at, n.seen_at IS NOT NULL AS seen
+    `SELECT CASE WHEN m.kind = 'notice' AND m.notice_code = 'meeting_soon'
+                  AND (n.reason = 'card' OR EXISTS (SELECT 1 FROM room_meetings g
+                        WHERE g.company_id = m.company_id AND g.message_id = m.thread_of AND $1 = ANY (g.attendees)))
+                 THEN 'meeting' ELSE n.reason END AS reason,
+            m.room_id, n.message_id, m.thread_of, n.created_at, n.seen_at IS NOT NULL AS seen
        FROM room_mentions n JOIN room_messages m ON m.company_id = n.company_id AND m.id = n.message_id
       WHERE n.principal = $1
       ORDER BY n.created_at DESC LIMIT ${ACTIVITY_PAGE}`, [me])).rows);

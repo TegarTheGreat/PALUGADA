@@ -19,6 +19,9 @@
  * quiet: it tells nobody and counts as nothing unread. Its questions and
  * approvals go in its thread, as a piece of work's go in its asking
  * message's, and so do those of a meeting called about a message.
+ *
+ * People's own meetings (STATUS 2.215) are no agent's work and have no card:
+ * the sweep only reminds the people asked, ten minutes before one starts.
  */
 import { randomUUID } from 'node:crypto';
 import { withRoomPlatform, type TenantClient } from '../db/tenant.ts';
@@ -32,11 +35,13 @@ const STATE_DAYS = 30;
 const QUEUED_AFTER_MINUTES = 10;
 /** The journal is read again this far behind the cursor: a transaction that began earlier may commit after it moved. */
 const CURSOR_OVERLAP_SECONDS = 30;
+/** How long before a people's meeting starts its people are reminded (F19.26); the notify stage tells them by it too. */
+export const REMIND_MINUTES = 10;
 
 /** A notice the platform writes, coded: the console says it in the reader's language. */
 export type NoticeCode =
   | 'held_paused' | 'refused_frozen' | 'refused_incomplete' | 'refused_budget' | 'refused_goal' | 'refused_project'
-  | 'recorded' | 'queued';
+  | 'recorded' | 'queued' | 'meeting_soon';
 
 /**
  * A coded notice in a room, at its top or in a thread: why an ask waits, or
@@ -271,6 +276,35 @@ export async function syncRoomCards(companyId: string): Promise<number> {
         `INSERT INTO room_messages (id, company_id, room_id, thread_of, kind, author, via, notice_code, notice_values, position)
          VALUES ($1, $2, $3, $4, 'notice', 'platform', 'platform', 'queued', '{}', 0)`,
         [randomUUID(), companyId, message.room_id, message.id]);
+      written += 1;
+    }
+
+    // 6. People's meetings about to start (F19.26): ten minutes before, once,
+    //    a coded notice in the meeting's thread, which is its notes, and card
+    //    attention for each person asked who can still see the room, so their
+    //    Activity says it and the notify stage tells them where they linked a
+    //    phone. Marking it reminded draws its message again and counts the
+    //    reminder (0159), so a meeting moved again and again is reminded at
+    //    most twice. A meeting whose start passed before any pass reached it
+    //    is not reminded late, and is marked all the same, so the sweep
+    //    stops looking at it. A cancelled meeting is never chosen, and one
+    //    whose words were removed, by a person or by retention, was
+    //    cancelled with them (0159).
+    const { rows: soon } = await tx.query<{ id: string; room_id: string; message_id: string; starts_at: Date; attendees: string[] }>(
+      `SELECT id, room_id, message_id, starts_at, attendees::text[] AS attendees FROM room_meetings
+        WHERE reminded_at IS NULL AND cancelled_at IS NULL AND starts_at <= $1::timestamptz + make_interval(mins => ${REMIND_MINUTES})
+        ORDER BY starts_at, id`,
+      [now]);
+    for (const meeting of soon) {
+      if (meeting.starts_at > now) {
+        const noticeId = randomUUID();
+        await tx.query(
+          `INSERT INTO room_messages (id, company_id, room_id, thread_of, kind, author, via, notice_code, notice_values, position)
+           VALUES ($1, $2, $3, $4, 'notice', 'platform', 'platform', 'meeting_soon', $5, 0)`,
+          [noticeId, companyId, meeting.room_id, meeting.message_id, JSON.stringify({ startsAt: meeting.starts_at.toISOString() })]);
+        written += 1 + await owe(tx, companyId, meeting.room_id, noticeId, meeting.attendees);
+      }
+      await tx.query('UPDATE room_meetings SET reminded_at = $2 WHERE id = $1', [meeting.id, now]);
       written += 1;
     }
 

@@ -105,6 +105,19 @@ async function asksPerDay(viewer: Viewer): Promise<number> {
   return rows[0]?.asks_per_day ?? 0;
 }
 
+/**
+ * A people's meeting set from these words (STATUS 2.215) keeps them talk:
+ * its thread is the meeting's notes, and no agent sees it, so they are given
+ * as no work and called no meeting of agents about. Read as the person, who
+ * sees the meetings of the room they press in.
+ */
+async function assertNoPeopleMeeting(tx: TenantClient, messageId: string): Promise<void> {
+  const { rows } = await tx.query('SELECT 1 FROM room_meetings WHERE message_id = $1', [messageId]);
+  if (rows.length > 0) {
+    throw new PalugadaError('contract.violation', 'a meeting of people is set from that message: it is talk, and becomes no work', { messageId });
+  }
+}
+
 /** A role's name as the owner calls it, for a notice; empty when it is not known. */
 async function roleCalled(companyId: string, roleId: string | null): Promise<string> {
   if (!roleId) return '';
@@ -159,6 +172,7 @@ export async function giveAsWork(viewer: Viewer, roomId: string, messageId: stri
       if (message.kind !== 'text' || message.deleted_at || message.became !== null) {
         throw new PalugadaError('contract.violation', 'only a person\'s words become work, once', { messageId });
       }
+      await assertNoPeopleMeeting(tx, messageId);
       // Work begins a thread of its own: its cards, its notices and what is
       // told to it are replies to it, and a thread is one level deep (0150).
       // Asked before anything that could refuse it with a notice, which
@@ -291,6 +305,7 @@ export async function callMeetingFromRoom(viewer: Viewer, roomId: string, messag
       if (message.kind !== 'text' || message.deleted_at || message.became !== null) {
         throw new PalugadaError('contract.violation', 'only a person\'s words, not yet given as work, are called a meeting about, once', { messageId });
       }
+      await assertNoPeopleMeeting(tx, messageId);
       // The meeting's questions and record are replies to the message, and
       // a thread is one level deep (0150).
       if (message.thread_of !== null) {

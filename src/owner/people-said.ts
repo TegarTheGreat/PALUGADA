@@ -72,6 +72,16 @@ export function tierThreeSaid(language: string | null, relay: string): string {
   return say(language, 'Tier 3 is decided in the app, not through {relay}.', { relay });
 }
 
+/**
+ * A people's meeting about to start (F19.26): its room named, except a direct
+ * conversation's, which has no name, and at `signal`, which names no room.
+ */
+export function meetingSoonSaid(language: string | null, room: string | null): string {
+  return room === null
+    ? say(language, 'A meeting starts in ten minutes.')
+    : say(language, 'A meeting starts in ten minutes in {room}.', { room });
+}
+
 /** The words on a button a notice about a room carries. */
 export function roomOfferLabel(language: string | null, act: 'reply' | 'read' | 'mute'): string {
   if (act === 'reply') return say(language, 'Reply');

@@ -4,11 +4,11 @@
  * doors a message becomes work through, and a person's own attention.
  *
  * A route module of the people's workspace (`../route.ts`): the rooms' server
- * writes its routes here, and the live stream (the last route, served by the
- * hub in `../../workspace/hub.ts`), a room's files and people's meetings add
- * theirs. `#buildRoutes` in `../api.ts` serves them beside the
+ * writes its routes here, and the live stream (served by the hub in
+ * `../../workspace/hub.ts`), a room's files and people's meetings (the last
+ * two routes) add theirs. `#buildRoutes` in `../api.ts` serves them beside the
  * owner API's own, and what a staff seat may reach of them is this area's
- * block in `../staff-policy.ts`.
+ * block in `../staff-policy.ts`, and people's meetings' block beside it.
  *
  * Who a request is comes from its session alone (`principalOf`): a body that
  * names an author is refused rather than read, so nobody writes in another's
@@ -21,6 +21,7 @@ import { giveAsWork, stopWork, tellTheWork } from '../../workspace/doors.ts';
 import {
   deleteMessage, editMessage, follow, historyOf, messageIdOf, messagePage, pin, postMessage, react, threadView,
 } from '../../workspace/messages.ts';
+import { changePeopleMeeting, setPeopleMeeting } from '../../workspace/people-meetings.ts';
 import { principalOf } from '../../workspace/principal.ts';
 import { activityOf, markRead, unreadAcross } from '../../workspace/reads.ts';
 import {
@@ -259,6 +260,22 @@ export function roomRoutes(kit: RouteKit): Route[] {
           lastEventId: typeof last === 'string' ? last : null,
         });
       },
+    },
+    {
+      // A people's meeting (F19.26, STATUS 2.215): the setter's own message,
+      // at the top of the room, becomes a meeting with a time, a length, the
+      // people asked and a pasted call link. Not work: no task, no run, no event.
+      method: 'POST',
+      pattern: '/api/companies/:companyId/rooms/:roomId/people-meetings',
+      handle: posted(async (viewer, { params, body }) => ({ meeting: await setPeopleMeeting(viewer, roomIdOf(params.roomId), body) })),
+    },
+    {
+      // Moved, changed or cancelled, by whoever set it or the owner.
+      method: 'POST',
+      pattern: '/api/companies/:companyId/rooms/:roomId/people-meetings/:meetingId',
+      handle: posted(async (viewer, { params, body }) => ({
+        meeting: await changePeopleMeeting(viewer, roomIdOf(params.roomId), params.meetingId, body),
+      })),
     },
   ];
 }

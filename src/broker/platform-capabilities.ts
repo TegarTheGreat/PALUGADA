@@ -31,7 +31,7 @@ import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/sta
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus, type GoalWarning } from '../domain/goals.ts';
 import { PLAN_LINES_MAX, proposeGoalPlan, type PlanLineInput } from '../domain/goal-plans.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
-import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
+import { createSubTask, getTask, outsideContentIn, quoteStaff, transition } from '../engine/tasks.ts';
 import { JOIN_MINUTES } from '../engine/meeting.ts';
 import { assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, solveIssue, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
@@ -147,20 +147,13 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
         });
         // A fact learned from work members of staff asked for or spoke to is
         // their words: the work that found it carries them now, as work told
-        // it in its briefing does (F19.9, STATUS 2.217).
-        const told = new Map<string, { seatId: string | null; name: string }>();
-        for (const memory of found.slice(0, limit)) {
-          if (memory.source === 'owner') continue;
-          for (const word of memory.staff) told.set(`${word.seatId}:${word.name}`, word);
-        }
-        const project = told.size === 0 ? undefined
+        // it in its briefing does, once however often it finds them (F19.9,
+        // STATUS 2.217). The owner's own lesson on an issue their work filed
+        // names them too: the issue's words were not the owner's.
+        const told = found.slice(0, limit).flatMap((memory) => memory.staff);
+        const project = told.length === 0 ? undefined
           : (await tx.query<{ project_id: string }>('SELECT project_id FROM tasks WHERE id = $1', [ctx.taskId])).rows[0]?.project_id;
-        for (const word of told.values()) {
-          await appendEvent(tx, {
-            companyId: ctx.companyId, ...(project ? { projectId: project } : {}), taskId: ctx.taskId, type: 'content.staff_said', actor: 'broker',
-            payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: 'memory' },
-          });
-        }
+        await quoteStaff(tx, { companyId: ctx.companyId, projectId: project, taskId: ctx.taskId, actor: 'broker', from: 'memory', words: told });
         return found;
       });
 
@@ -188,7 +181,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           passage: wrapUntrusted(`document:${found.title}`, found.body),
         })),
         facts: facts.slice(0, limit).map((memory) => {
-          const staff = memory.source === 'owner' ? [] : [...new Set(memory.staff.map((word) => word.name))];
+          const staff = [...new Set(memory.staff.map((word) => word.name))];
           return {
             body: memory.body,
             confidence: memory.confidence,

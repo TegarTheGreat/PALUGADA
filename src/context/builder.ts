@@ -1288,8 +1288,10 @@ export async function buildContext(
     // And something learned from work a member of staff asked for or spoke
     // to is their words, not the company's knowledge: never a known fact,
     // told inside a colleague's fence, and a run told it carries their words
-    // as if they had said them to it (F19.9, STATUS 2.217).
-    const staff = memory.source === 'owner' ? [] : memory.staff;
+    // as if they had said them to it (F19.9, STATUS 2.217). That holds for
+    // the owner's own lesson on an issue such work filed: the issue's words
+    // were not the owner's. The owner's other memories name nobody.
+    const staff = memory.staff;
     const unverified = memory.confidence < LOW_CONFIDENCE || memory.outside || staff.length > 0;
     sections.push({
       kind: 'semantic_memory',
@@ -1297,7 +1299,7 @@ export async function buildContext(
       // the low ones say so in a word as well as a number: a run scanning
       // headings should not have to compare decimals to notice.
       title:
-        `${memory.source === 'owner' ? 'Known fact, from the owner' : unverified ? 'UNVERIFIED fact' : 'Known fact'}`
+        `${memory.source === 'owner' && staff.length === 0 ? 'Known fact, from the owner' : unverified ? 'UNVERIFIED fact' : 'Known fact'}`
         + `${memory.outside ? ', learned from outside content' : ''}`
         + `${staff.length > 0 ? `, learned from work ${namesOf(staff)} of the owner's staff asked for or spoke to` : ''} `
         + `(confidence ${memory.confidence.toFixed(2)}, source ${memory.source}, recorded ${memory.validFrom.toISOString().slice(0, 10)})`,

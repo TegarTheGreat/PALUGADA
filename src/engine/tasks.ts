@@ -286,6 +286,40 @@ export async function staffOfSeats(tx: TenantClient, companyId: string, seatIds:
   return ids.map((seatId) => ({ seatId, name: named.get(seatId) ?? UNNAMED_STAFF }));
 }
 
+/**
+ * Records that work was told a member of staff's words it was not given by
+ * them (`content.staff_said`, `quoted`, F19.9): a lesson their work taught,
+ * from memory, or what the work a follow-up follows came to carry. Each once
+ * a task and a source: a run tried again, a later attempt or a second search
+ * that finds the same lesson records nothing new, so the Work page says it
+ * once (STATUS 2.217). What holds the work is the same either way.
+ */
+export async function quoteStaff(tx: TenantClient, input: {
+  companyId: string;
+  projectId?: string | undefined;
+  taskId: string;
+  actor: string;
+  from: 'memory' | 'follow_up';
+  words: Iterable<StaffWord>;
+}): Promise<void> {
+  const words = [...input.words];
+  if (words.length === 0) return;
+  const { rows } = await tx.query<{ seat_id: string | null; name: string | null }>(
+    `SELECT payload->>'seatId' AS seat_id, payload->>'name' AS name FROM events
+      WHERE task_id = $1 AND type = 'content.staff_said' AND payload->>'how' = 'quoted' AND payload->>'from' = $2`,
+    [input.taskId, input.from]);
+  const told = new Set(rows.map((row) => `${row.seat_id}:${row.name}`));
+  for (const word of words) {
+    const key = `${word.seatId}:${word.name}`;
+    if (told.has(key)) continue;
+    told.add(key);
+    await appendEvent(tx, {
+      companyId: input.companyId, projectId: input.projectId, taskId: input.taskId, type: 'content.staff_said', actor: input.actor,
+      payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: input.from },
+    });
+  }
+}
+
 /** The seats of the staff whose words are in the work, without the entries no seat survives for. */
 export function seatsOf(words: readonly StaffWord[]): string[] {
   return words.map((word) => word.seatId).filter((id): id is string => id !== null);

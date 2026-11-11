@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
-import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
+import { createSubTask, getTask, quoteStaff, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
 import { checkDone, checkFailedWrites, roomForDone, saidNotDone } from './done.ts';
 import { narrator } from './transcript.ts';
@@ -477,21 +477,15 @@ export class Engine {
       // A lesson that work members of staff asked for or spoke to taught is
       // their words: a run told it carries them from its first step, as one
       // told a lesson from outside content carries that (F19.9, STATUS 2.217).
-      const toldStaff = new Map<string, { seatId: string | null; name: string }>();
-      for (const word of context.sections.flatMap((section) => section.staff ?? [])) toldStaff.set(`${word.seatId}:${word.name}`, word);
-      for (const word of toldStaff.values()) {
-        await appendEvent(tx, {
-          companyId, projectId: task.projectId, taskId: task.id, type: 'content.staff_said', actor: 'system',
-          payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: 'memory' },
-        });
-      }
+      // Once a task: a run tried again is told the same and records nothing new.
+      await quoteStaff(tx, {
+        companyId, projectId: task.projectId, taskId: task.id, actor: 'system', from: 'memory',
+        words: context.sections.flatMap((section) => section.staff ?? []),
+      });
       // And a member of staff's words that work came to carry (F19.9).
-      for (const word of context.carriesStaffFrom?.staff ?? []) {
-        await appendEvent(tx, {
-          companyId, projectId: task.projectId, taskId: task.id, type: 'content.staff_said', actor: 'system',
-          payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: 'follow_up' },
-        });
-      }
+      await quoteStaff(tx, {
+        companyId, projectId: task.projectId, taskId: task.id, actor: 'system', from: 'follow_up', words: context.carriesStaffFrom?.staff ?? [],
+      });
       const goalAncestry = await ancestryForTask(tx, task.id);
 
       const { rows: toolRows } = await tx.query<{

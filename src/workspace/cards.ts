@@ -98,23 +98,71 @@ async function askingMessageOf(tx: TenantClient, taskId: string): Promise<{ id: 
   return rows[0] ?? null;
 }
 
+/** The most cards one turn of the sweep writes: one statement, in a transaction of its own. */
+const CARDS_A_TURN = 500;
+
+/**
+ * The company's room clock, taken first in each of the sweep's
+ * transactions as every room write takes it, and held to its commit: two
+ * workers' turns over one company run one after the other, and each sees
+ * what the other wrote. Moving the cursor to the start of time moves it
+ * nowhere; it only takes the row.
+ */
+async function holdClock(tx: TenantClient, companyId: string): Promise<void> {
+  await tx.query("SELECT app.advance_card_cursor($1, '-infinity')", [companyId]);
+}
+
+/**
+ * The cards of the last month whose subject moved since they were drawn,
+ * each with the state it is drawn in now; of `among` alone when given.
+ */
+async function cardsMoved(tx: TenantClient, now: Date, among: string[] | null): Promise<Array<{ id: string; state: string }>> {
+  const { rows: cards } = await tx.query<{
+    id: string; drawn: string | null; item_kind: string | null; status: string | null; decision: string | null;
+    payload: Record<string, unknown> | null; task_status: string | null; closed_reason: string | null;
+  }>(
+    `SELECT c.id, c.notice_values->>'state' AS drawn, i.kind AS item_kind, i.status, i.decision, i.payload, t.status AS task_status,
+            i.closed_reason
+       FROM room_messages c
+       LEFT JOIN inbox_items i ON i.id = c.inbox_item_id
+       LEFT JOIN tasks t ON t.id = c.task_id
+      WHERE c.author = 'platform' AND c.kind IN ('work', 'question', 'approval', 'meeting')
+        AND c.created_at > $1::timestamptz - make_interval(days => ${STATE_DAYS})
+        AND ($2::uuid[] IS NULL OR c.id = ANY($2::uuid[]))`,
+    [now, among]);
+  const moved: Array<{ id: string; state: string }> = [];
+  for (const card of cards) {
+    const state = card.item_kind !== null
+      ? itemState({ kind: card.item_kind, status: card.status!, decision: card.decision, payload: card.payload ?? {} }, card.closed_reason)
+      : card.task_status ?? 'gone';
+    if (state !== card.drawn) moved.push({ id: card.id, state });
+  }
+  return moved;
+}
+
 /**
  * One pass over a company's rooms: their cards made, redrawn and told, and
  * the cursor moved on. Returns how many rows it wrote. Run by the worker each
  * tick, after the inbox's own stages and before the owner is notified.
+ *
+ * Every room write of the company takes its clock first and waits while
+ * another holds it, so the pass holds it in turns: one transaction for what
+ * a pass usually finds -- the weekly meeting's card, questions and
+ * approvals, work under people's messages, reminders -- and then one for
+ * each five hundred work cards drawn, and each five hundred drawn again. A
+ * busy division's first pass over thousands of pieces of work held every
+ * post of the company for the whole of it (STATUS 2.220); a post now waits
+ * for one turn at most. Each turn asks again, under the clock, of just the
+ * cards it writes, so two workers' passes never draw a card twice or an
+ * older state over a newer one.
  */
-/** The most cards one statement of the sweep writes. */
-const CARDS_A_STATEMENT = 500;
-
 export async function syncRoomCards(companyId: string): Promise<number> {
   // A division made since the last pass has its room before a card is put in it.
   await ensureCompanyRooms(companyId);
   // Who may decide a card: the inbox's approvers, less the seats whose words are in the work (below).
   const deciders = await approverSeats(companyId);
-  return withRoomPlatform(companyId, async (tx) => {
-    // The clock's row, held to commit: two workers' passes over one company
-    // run one after the other, and each sees what the other wrote.
-    await tx.query("SELECT app.advance_card_cursor($1, '-infinity')", [companyId]);
+  const opened = await withRoomPlatform(companyId, async (tx) => {
+    await holdClock(tx, companyId);
     const { rows: clock } = await tx.query<{ now: Date }>('SELECT now() AS now');
     const now = clock[0]!.now;
     let written = 0;
@@ -199,7 +247,8 @@ export async function syncRoomCards(companyId: string): Promise<number> {
     // 2. Every root task a division was given since its room was told to
     //    show all of its work (0154 keeps when), however long ago that was:
     //    reconciled from the tasks, so work whose transaction committed
-    //    behind the cursor still gets its card.
+    //    behind the cursor still gets its card. Chosen here, and drawn in
+    //    the turns below.
     const { rows: started } = await tx.query<{ id: string; room_id: string }>(
       `SELECT t.id, r.id AS room_id FROM tasks t
          JOIN rooms r ON r.kind = 'division' AND r.division_id = t.division_id AND r.shows_work = 'all'
@@ -209,51 +258,6 @@ export async function syncRoomCards(companyId: string): Promise<number> {
           AND NOT EXISTS (SELECT 1 FROM room_messages c WHERE c.room_id = r.id AND c.kind = 'work' AND c.task_id = t.id)
         ORDER BY t.created_at, t.id`,
       [now]);
-    // Many cards to a statement: the clock is held from this pass's first
-    // write to its commit, and every room write of the company waits for it,
-    // so a busy division's work is drawn in one round trip rather than one a
-    // card (STATUS 2.217). The rows go in the work's order.
-    for (let from = 0; from < started.length; from += CARDS_A_STATEMENT) {
-      const some = started.slice(from, from + CARDS_A_STATEMENT);
-      await tx.query(
-        `INSERT INTO room_messages (id, company_id, room_id, kind, author, via, task_id, notice_values, position)
-         SELECT gen_random_uuid(), $1, u.room_id, 'work', 'platform', 'platform', u.task_id, '{"state":"pending"}'::jsonb, 0
-           FROM unnest($2::uuid[], $3::uuid[]) WITH ORDINALITY AS u(room_id, task_id, n) ORDER BY u.n`,
-        [companyId, some.map((task) => task.room_id), some.map((task) => task.id)]);
-      written += some.length;
-    }
-
-    // 3. Every card whose subject moved since it was drawn: drawn again, in
-    //    place, which tells the rooms that show it (0150's update trigger).
-    const { rows: cards } = await tx.query<{
-      id: string; drawn: string | null; item_kind: string | null; status: string | null; decision: string | null;
-      payload: Record<string, unknown> | null; task_status: string | null; closed_reason: string | null;
-    }>(
-      `SELECT c.id, c.notice_values->>'state' AS drawn, i.kind AS item_kind, i.status, i.decision, i.payload, t.status AS task_status,
-              i.closed_reason
-         FROM room_messages c
-         LEFT JOIN inbox_items i ON i.id = c.inbox_item_id
-         LEFT JOIN tasks t ON t.id = c.task_id
-        WHERE c.author = 'platform' AND c.kind IN ('work', 'question', 'approval', 'meeting')
-          AND c.created_at > $1::timestamptz - make_interval(days => ${STATE_DAYS})`,
-      [now]);
-    const redrawn: Array<{ id: string; state: string }> = [];
-    for (const card of cards) {
-      const state = card.item_kind !== null
-        ? itemState({ kind: card.item_kind, status: card.status!, decision: card.decision, payload: card.payload ?? {} }, card.closed_reason)
-        : card.task_status ?? 'gone';
-      if (state !== card.drawn) redrawn.push({ id: card.id, state });
-    }
-    // Drawn again many to a statement, for the reason above.
-    for (let from = 0; from < redrawn.length; from += CARDS_A_STATEMENT) {
-      const some = redrawn.slice(from, from + CARDS_A_STATEMENT);
-      await tx.query(
-        `UPDATE room_messages c SET notice_values = jsonb_build_object('state', u.state)
-           FROM unnest($1::uuid[], $2::text[]) AS u(id, state) WHERE c.id = u.id`,
-        [some.map((card) => card.id), some.map((card) => card.state)]);
-      written += some.length;
-    }
-
     // 4. Work under a person's own message, which the platform does not
     //    write -- given as work, or a meeting called about it: when its task
     //    moved after the message was last drawn, the rooms are told to draw
@@ -327,6 +331,44 @@ export async function syncRoomCards(companyId: string): Promise<number> {
     }
 
     await tx.query('SELECT app.advance_card_cursor($1, $2)', [companyId, now]);
-    return written;
+    return { now, written, started };
   });
+  let written = opened.written;
+
+  // The work's cards, five hundred a turn, in the work's order; a card another worker drew meanwhile is not drawn twice.
+  for (let from = 0; from < opened.started.length; from += CARDS_A_TURN) {
+    const some = opened.started.slice(from, from + CARDS_A_TURN);
+    written += await withRoomPlatform(companyId, async (tx) => {
+      await holdClock(tx, companyId);
+      const { rowCount } = await tx.query(
+        `INSERT INTO room_messages (id, company_id, room_id, kind, author, via, task_id, notice_values, position)
+         SELECT gen_random_uuid(), $1, u.room_id, 'work', 'platform', 'platform', u.task_id, '{"state":"pending"}'::jsonb, 0
+           FROM unnest($2::uuid[], $3::uuid[]) WITH ORDINALITY AS u(room_id, task_id, n)
+          WHERE NOT EXISTS (SELECT 1 FROM room_messages c WHERE c.room_id = u.room_id AND c.kind = 'work' AND c.task_id = u.task_id)
+          ORDER BY u.n`,
+        [companyId, some.map((task) => task.room_id), some.map((task) => task.id)]);
+      return rowCount ?? 0;
+    });
+  }
+
+  // 3. Every card whose subject moved since it was drawn -- the work's
+  //    cards just drawn among them -- drawn again in place, which tells the
+  //    rooms that show it (0150's update trigger): found without the clock,
+  //    then five hundred a turn, each turn asking again of its cards under
+  //    the clock and drawing them as they are then.
+  const toDraw = await withRoomPlatform(companyId, (tx) => cardsMoved(tx, opened.now, null));
+  for (let from = 0; from < toDraw.length; from += CARDS_A_TURN) {
+    const some = toDraw.slice(from, from + CARDS_A_TURN).map((card) => card.id);
+    written += await withRoomPlatform(companyId, async (tx) => {
+      await holdClock(tx, companyId);
+      const still = await cardsMoved(tx, opened.now, some);
+      if (still.length === 0) return 0;
+      const { rowCount } = await tx.query(
+        `UPDATE room_messages c SET notice_values = jsonb_build_object('state', u.state)
+           FROM unnest($1::uuid[], $2::text[]) AS u(id, state) WHERE c.id = u.id`,
+        [still.map((card) => card.id), still.map((card) => card.state)]);
+      return rowCount ?? 0;
+    });
+  }
+  return written;
 }

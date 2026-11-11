@@ -63,6 +63,9 @@ const LEFT_OUT: Readonly<Record<string, string>> = {
   room_follows: "the threads a person follows, their own attention",
   room_feed: 'what changed, for an open room to catch up on: delivery bookkeeping',
   room_clock: "the rooms' order, which a restore takes again from the messages' order",
+  // STATUS 2.213: a notice is planned from the feed, which a restore writes
+  // nothing of per message, so a restored company is told nothing again.
+  people_notices: 'what each person was told outside PALUGADA, and when: delivery bookkeeping, kept a month',
 };
 
 /**

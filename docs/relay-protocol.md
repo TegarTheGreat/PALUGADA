@@ -355,9 +355,9 @@ sent at all, and its tokens are void.
 A meeting the person was asked to starts in ten minutes. People set it in a
 room of PALUGADA, with a time, a length and the people asked; its title and
 agenda are a message its setter wrote there, and its thread is the notes.
-Sent once for each time it is set for, only while the person may still see
-the room, and never for a meeting cancelled, begun, or whose message was
-removed. `data` is `{}` at `signal`; adds `room` (its name, or `null` for a
+Sent once when it is reminded, and once more at most if it moves after
+that, only while the person may still see the room, and never for a meeting
+cancelled, begun, moved since, or whose message was removed. `data` is `{}` at `signal`; adds `room` (its name, or `null` for a
 direct conversation), `startsAt` (ISO 8601) and `minutes` at `summary`; adds
 `title` (the setter's words, at most 140 characters, with any secret in them
 redacted) at `content`, which `text` also carries on its second line. `link`

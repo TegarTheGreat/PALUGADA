@@ -238,10 +238,15 @@ export function roomRoutes(kit: RouteKit): Route[] {
       handle: async (context) => ({ items: await activityOf(viewerOf(context)) }),
     },
     {
-      // Everything that waits for the person read at once: their own marks and mentions (STATUS 2.218).
+      // Everything that waits for the person read at once: their own marks and
+      // mentions (STATUS 2.218), counted with the read marks of one room each,
+      // as every write of the rooms is held to a person's minute (STATUS 2.217).
       method: 'POST',
       pattern: '/api/companies/:companyId/me/read-all',
-      handle: posted(async (viewer) => readEverything(viewer)),
+      handle: posted(async (viewer) => {
+        holdToMinute(viewer, 'read');
+        return readEverything(viewer);
+      }),
     },
     {
       // "Give as work": the message becomes a task, its money held first.

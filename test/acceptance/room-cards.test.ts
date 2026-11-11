@@ -182,7 +182,7 @@ test('a division room that shows what needs people shows unaddressed questions a
   }
 });
 
-test('routine work never reaches a room', async () => {
+test('routine work reaches no room but a division\'s told to show all its work, which a member cannot tell it', async () => {
   const { fixture, api, owner } = await workspace('cards-routine');
   try {
     const first = await divisionWork(fixture, 'Back up the books');

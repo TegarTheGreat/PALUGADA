@@ -20,7 +20,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ActionIcon, Box, Button, Group, Text, Tooltip } from '@mantine/core';
-import { useHotkeys, useMediaQuery } from '@mantine/hooks';
+import { useElementSize, useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconArrowLeft, IconBellOff, IconHash, IconInfoCircle, IconLock } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
@@ -34,6 +34,7 @@ import { AskWork } from '../workspace/AskWork.tsx';
 import { Browse } from '../workspace/Browse.tsx';
 import { Composer, type Sent } from '../workspace/Composer.tsx';
 import { disclosureOf } from '../workspace/disclosure.ts';
+import { focusNextComposer, useEscape } from '../workspace/keys.ts';
 import { CallMeeting } from '../workspace/MeetingCard.tsx';
 import { NewMessage } from '../workspace/NewMessage.tsx';
 import { NewRoom } from '../workspace/NewRoom.tsx';
@@ -42,26 +43,56 @@ import { RoomInfo } from '../workspace/RoomInfo.tsx';
 import { SearchPanel } from '../workspace/SearchPanel.tsx';
 import { SlackInvite } from '../workspace/ImportSlack.tsx';
 import { quiet, RoomRail } from '../workspace/RoomRail.tsx';
-import { roomName, ScopeContext, useScope, type Scope } from '../workspace/scope.ts';
+import { itemAt, roomName, ScopeContext, useScope, type Scope } from '../workspace/scope.ts';
 import { ThreadPanel } from '../workspace/ThreadPanel.tsx';
 import { Timeline, usePosting, type Pending } from '../workspace/Timeline.tsx';
 import type { MessageView, Person, Room, RoomListItem } from '../workspace/types.ts';
 import { useKeyboardInset } from '../workspace/useKeyboardInset.ts';
 import { useRoomPulse } from '../workspace/useRoomStream.ts';
 
-/** What is open, read from the address. */
+/**
+ * What is open, read from the address. A room may name the message it opens
+ * around (`<room>.<position>`), and a thread the reply it opens at
+ * (`<room>~<message>.<position>`), as `itemAt` writes them (STATUS 2.218).
+ */
 type Open =
   | { kind: 'none' }
-  | { kind: 'room'; roomId: string; threadId: string | null }
+  | { kind: 'room'; roomId: string; at: number | null; threadId: string | null; threadAt: number | null }
   | { kind: 'activity' } | { kind: 'browse' } | { kind: 'search' } | { kind: 'ceo' } | { kind: 'palugada' };
+
+/** A position from the address, or none. */
+function positionIn(text: string | undefined): number | null {
+  const position = Number(text);
+  return text && Number.isSafeInteger(position) && position >= 0 ? position : null;
+}
 
 function openOf(item: string | null, owner: boolean): Open {
   if (!item) return { kind: 'none' };
   if (item === 'activity' || item === 'browse' || item === 'search') return { kind: item };
   // The owner's own conversations; a seat has none here.
   if (item === 'ceo' || item === 'palugada') return owner ? { kind: item } : { kind: 'none' };
-  const [roomId = '', threadId] = item.split('~');
-  return { kind: 'room', roomId, threadId: threadId || null };
+  const [room = '', thread = ''] = item.split('~');
+  const [roomId = '', at] = room.split('.');
+  const [threadId = '', threadAt] = thread.split('.');
+  return { kind: 'room', roomId, at: positionIn(at), threadId: threadId || null, threadAt: positionIn(threadAt) };
+}
+
+/** The rail's width, a thread's, and the least a room beside a thread is given to read in (app.css). */
+const RAIL_PX = 264;
+const THREAD_PX = 400;
+const ROOM_LEAST_PX = 420;
+
+/**
+ * How a thread is drawn beside its room, from the width the Rooms page itself
+ * has -- not the window's, which also holds the shell's own navigation: all
+ * three panes where the room keeps room to read; the room and the thread with
+ * the rail put away where only they fit; and the thread alone, with a way
+ * back, where they do not.
+ */
+function panesFor(width: number): 'three' | 'two' | 'alone' {
+  if (width >= RAIL_PX + THREAD_PX + ROOM_LEAST_PX) return 'three';
+  if (width >= THREAD_PX + ROOM_LEAST_PX) return 'two';
+  return 'alone';
 }
 
 /** How often the rail is read again while the room stream is not heard: refused for five tabs open already, or down. */
@@ -71,8 +102,10 @@ export function Rooms({ ctx, route }: PageProps) {
   const companyId = ctx.companyId;
   const owner = ctx.staff === null;
   const me = owner ? 'owner' : ctx.me?.principal ?? null;
-  const wide = useMediaQuery('(min-width: 62em)') ?? true;
   const phone = useMediaQuery('(max-width: 48em)') ?? false;
+  // The page's own width decides the panes; before it is measured, the window's stands in for it.
+  const page = useElementSize();
+  const panes = panesFor(page.width > 0 ? page.width : window.innerWidth);
   const open = openOf(route.item, owner);
   const [tick, setTick] = useState(0);
   // What Ask the team is open for: a message, or nothing yet; null while it is closed.
@@ -96,10 +129,12 @@ export function Rooms({ ctx, route }: PageProps) {
   const roomId = open.kind === 'room' ? open.roomId : null;
   const railPulse = useRoomPulse(companyId, (frame) => 'room' in frame && frame.kind !== 'reaction' && frame.kind !== 'pin');
   const roomPulse = useRoomPulse(companyId, (frame) => 'room' in frame && frame.room === roomId && ['member', 'room', 'pin'].includes(frame.kind));
+  // Read again on a change here or a pulse, keeping what is drawn until the answer comes: a change that emptied the
+  // rail and the room first would take the composer, and the cursor in it, away after every message sent.
   const rooms = useLoad<RoomListItem[]>(async () => {
     const answer: { rooms: RoomListItem[] } = await api('GET', `/api/companies/${companyId}/rooms`);
     return answer.rooms;
-  }, [companyId, tick], railPulse.live ? { pulse: railPulse.pulse } : { every: RAIL_EVERY_MS });
+  }, [companyId], railPulse.live ? { pulse: railPulse.pulse + tick } : { every: RAIL_EVERY_MS, pulse: tick });
   const people = useLoad<Person[]>(async () => {
     const answer: { people: Person[] } = await api('GET', `/api/companies/${companyId}/people`);
     return answer.people;
@@ -108,7 +143,7 @@ export function Rooms({ ctx, route }: PageProps) {
     if (!roomId) return null;
     const answer: { room: Room } = await api('GET', `/api/companies/${companyId}/rooms/${roomId}`);
     return answer.room;
-  }, [companyId, roomId, tick], { pulse: roomPulse.pulse });
+  }, [companyId, roomId], { pulse: roomPulse.pulse + tick });
   // The same room read again keeps its place on screen; another room starts empty.
   const shownRoom = room.data && room.data.id === roomId ? room.data : null;
 
@@ -132,6 +167,16 @@ export function Rooms({ ctx, route }: PageProps) {
     ctx.refreshUnread();
   }, [ctx]);
 
+  // Everything that waits for the person, read at once from the rail: their own marks and mentions (STATUS 2.218).
+  const readAll = useCallback(() => {
+    api('POST', `/api/companies/${companyId}/me/read-all`, {})
+      .then(() => changed(), (failure: unknown) => notifications.show({ color: 'red', message: explain(failure) }));
+  }, [companyId, changed]);
+
+  // The room last open, which a search opened from the rail looks in first (STATUS 2.218).
+  const [lastRoom, setLastRoom] = useState<string | null>(null);
+  useEffect(() => { if (roomId) setLastRoom(roomId); }, [roomId]);
+
   const scope = useMemo<Scope | null>(() => (me ? {
     ctx,
     companyId,
@@ -141,6 +186,7 @@ export function Rooms({ ctx, route }: PageProps) {
     people: people.data ?? [],
     phone,
     openThread: (messageId) => { if (roomId) select(`${roomId}~${messageId}`); },
+    openAt: (message) => select(itemAt(message)),
     askWork: (message) => setAsking({ message }),
     callMeeting: (message) => setCalling({ message }),
     setMeeting: (room, message) => setSetting({ roomId: room, message }),
@@ -159,7 +205,12 @@ export function Rooms({ ctx, route }: PageProps) {
     const at = listed.findIndex((one) => one.id === roomId);
     for (let index = at + by; index >= 0 && index < listed.length; index += by) {
       const next = listed[index]!;
-      if (!fresh || (next.unread > 0 && !quiet(next)) || next.mentions > 0) { select(next.id); return; }
+      if (!fresh || (next.unread > 0 && !quiet(next)) || next.mentions > 0) {
+        // Opened from the keyboard: its composer takes the focus, so what is typed next lands there.
+        focusNextComposer();
+        select(next.id);
+        return;
+      }
     }
   };
   useHotkeys([
@@ -168,17 +219,15 @@ export function Rooms({ ctx, route }: PageProps) {
     ['alt+shift+ArrowUp', () => step(-1, true)],
     ['alt+shift+ArrowDown', () => step(1, true)],
   ], []);
-  useHotkeys([
-    ['Escape', () => { if (open.kind === 'room' && open.threadId) select(open.roomId); }],
-  ]);
+  useEscape(() => { if (open.kind === 'room' && open.threadId) select(itemAt({ roomId: open.roomId, threadOf: null, position: open.at })); });
 
   if (!scope) return null;
   const attention = ctx.unread.find((one) => one.companyId === companyId)?.mentions ?? 0;
   const threadOpen = open.kind === 'room' && open.threadId !== null;
-  // Which panes are drawn: a phone shows one, with a thread as a sheet over the room; a middling screen gives the
-  // thread the room's place; a wide one shows all three.
-  const showRail = !phone || open.kind === 'none';
-  const showMain = open.kind !== 'none' && (phone || wide || !threadOpen);
+  // Which panes are drawn: a phone shows one, with a thread as a sheet over the room; otherwise as the page's width
+  // allows a thread beside its room (panesFor).
+  const showRail = phone ? open.kind === 'none' : !threadOpen || panes === 'three';
+  const showMain = open.kind !== 'none' && (phone || !threadOpen || panes !== 'alone');
   // While the company has no topic room, the owner is offered their Slack workspace's (STATUS 2.214): above the
   // company room on a wide screen, and above the rail on a phone, which opens on the rail.
   const inviting = owner && !!rooms.data && !rooms.data.some((one) => one.kind === 'topic');
@@ -191,12 +240,13 @@ export function Rooms({ ctx, route }: PageProps) {
       newRoom={() => setMaking(true)}
       newMessage={() => setWriting([])}
       search={(text) => { setQuery(text); select('search'); }}
+      readAll={readAll}
     />
   );
 
   return (
     <ScopeContext.Provider value={scope}>
-      <Box className="rooms" data-rooms>
+      <Box className="rooms" data-rooms ref={page.ref}>
         {showRail && (phone && inviting ? (
           <Box className="rooms-stack">
             <SlackInvite companyId={companyId} imported={changed} />
@@ -207,7 +257,7 @@ export function Rooms({ ctx, route }: PageProps) {
           <Box className="rooms-main" data-pane="room" component="section">
             {open.kind === 'room' && inviting && !phone && shownRoom?.kind === 'company' && <SlackInvite companyId={companyId} imported={changed} />}
             {open.kind === 'room' && (
-              <RoomPane key={open.roomId} roomId={open.roomId} threadOpen={threadOpen} back={() => select(null)} addPeople={(principals) => setWriting(principals)} />
+              <RoomPane key={open.roomId} roomId={open.roomId} at={open.at} threadOpen={threadOpen} back={() => select(null)} addPeople={(principals) => setWriting(principals)} />
             )}
             {open.kind === 'activity' && (
               <>
@@ -218,8 +268,8 @@ export function Rooms({ ctx, route }: PageProps) {
             {open.kind === 'search' && (
               <>
                 <PaneHead back={phone ? () => select(null) : null} title={t('Search messages')} />
-                <SearchPanel query={query} setQuery={setQuery} rooms={rooms.data ?? []}
-                  open={(hit) => select(`${hit.roomId}~${hit.threadOf ?? hit.messageId}`)} />
+                <SearchPanel query={query} setQuery={setQuery} rooms={rooms.data ?? []} from={lastRoom}
+                  open={(hit) => select(itemAt({ roomId: hit.roomId, threadOf: hit.threadOf, position: hit.position }))} />
               </>
             )}
             {open.kind === 'browse' && (
@@ -239,7 +289,8 @@ export function Rooms({ ctx, route }: PageProps) {
           </Box>
         )}
         {threadOpen && open.kind === 'room' && (
-          <ThreadPanel key={open.threadId} roomId={open.roomId} rootId={open.threadId!} close={() => select(open.roomId)} alone={!wide && !phone} />
+          <ThreadPanel key={open.threadId} roomId={open.roomId} rootId={open.threadId!} at={open.threadAt}
+            close={() => select(itemAt({ roomId: open.roomId, threadOf: null, position: open.at }))} alone={!phone && panes === 'alone'} />
         )}
       </Box>
       <AskWork asking={asking} close={() => setAsking(null)} />
@@ -265,8 +316,10 @@ function PaneHead({ back, title, children }: { back: (() => void) | null; title:
 }
 
 /** One room: its header, its messages, and the composer, or the press that joins it. */
-function RoomPane({ roomId, threadOpen, back, addPeople }: {
+function RoomPane({ roomId, at, threadOpen, back, addPeople }: {
   roomId: string;
+  /** The message the room opens around, by its position: one found, pinned, named in Activity or linked. */
+  at: number | null;
   /** A thread is open beside or over the room: Esc closes it rather than marking the room read. */
   threadOpen: boolean;
   back: () => void;
@@ -366,7 +419,7 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
       {room && (room.private || room.kind === 'direct') && (
         <Text size="xs" c="dimmed" px={{ base: 'xs', sm: 'md' }} pb={6} className="room-disclosure">{disclosureOf(room)}</Text>
       )}
-      <Timeline roomId={roomId} escapeReads={!threadOpen} pending={posting.pending} retry={(one) => void posting.post(one).catch(failed)}
+      <Timeline roomId={roomId} at={at} escapeReads={!threadOpen} pending={posting.pending} retry={(one) => void posting.post(one).catch(failed)}
         editing={editing} setEditing={setEditing} shown={shown} />
       {room && room.archived && (
         <Text size="sm" c="dimmed" ta="center" p="md">{t('This room is archived: what was said is kept, and nobody can write in it.')}</Text>

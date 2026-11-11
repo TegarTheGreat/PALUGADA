@@ -28,9 +28,11 @@ import { useRoomPulse } from './useRoomStream.ts';
 /** How often an open thread is read again while the room stream is not heard: refused for five tabs open already, or down. */
 const POLL_MS = 5_000;
 
-export function ThreadPanel({ roomId, rootId, close, alone }: {
+export function ThreadPanel({ roomId, rootId, at = null, close, alone }: {
   roomId: string;
   rootId: string;
+  /** A reply to open the thread at, marked, by its position: one found, named in Activity or linked (STATUS 2.218). */
+  at?: number | null;
   close: () => void;
   /** Drawn in the room's place, with a way back to it, rather than beside it. */
   alone: boolean;
@@ -41,6 +43,9 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
+  const replies = useRef<HTMLDivElement>(null);
+  // Whether the thread has been put where it opens: at the reply asked for, once, and at its newest after that.
+  const landed = useRef(false);
   const seen = useRef(0);
 
   const load = useCallback(async () => {
@@ -105,7 +110,10 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
   const visible = useDocumentVisibility() === 'visible';
   useEffect(() => {
     if (!newest) return;
-    end.current?.scrollIntoView({ block: 'end' });
+    const asked = !landed.current && at !== null ? replies.current?.querySelector(`[data-thread-position="${at}"]`) : null;
+    landed.current = true;
+    if (asked) asked.scrollIntoView({ block: 'center' });
+    else end.current?.scrollIntoView({ block: 'end' });
   }, [newest?.position]);
   useEffect(() => {
     if (!newest || newest.position <= seen.current || !shownHere || !visible) return;
@@ -141,8 +149,8 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
         {!thread && !error && <Group justify="center" py="xl"><Loader size="sm" /></Group>}
         {error && <Text c="red" size="sm" p="md">{error}</Text>}
         {thread && (
-          <Box py="xs">
-            <MessageRow message={thread.root} inThread pinned={(scope.room?.pins ?? []).includes(thread.root.id)} />
+          <Box py="xs" ref={replies}>
+            <MessageRow message={thread.root} inThread pinned={(scope.room?.pins ?? []).includes(thread.root.id)} focused={at === thread.root.position} />
             {thread.progress && (
               <Box px="md" py={4} className="thread-progress">
                 <Text size="xs" c="dimmed" fw={600}>{t('Where the work is')}</Text>
@@ -151,8 +159,10 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
             )}
             <Text size="xs" c="dimmed" px="md" py={4}>{t('Replies')}</Text>
             {thread.replies.map((reply) => (
-              <MessageRow key={reply.id} message={reply} inThread editing={editing === reply.id}
-                setEditing={(on) => setEditing(on ? reply.id : null)} />
+              <Box key={reply.id} data-thread-position={reply.position}>
+                <MessageRow message={reply} inThread editing={editing === reply.id} focused={at === reply.position}
+                  setEditing={(on) => setEditing(on ? reply.id : null)} />
+              </Box>
             ))}
             {posting.pending.map((one) => <PendingRow key={one.clientId} pending={one} retry={retry} />)}
             <div ref={end} />

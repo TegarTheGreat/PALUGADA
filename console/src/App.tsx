@@ -32,6 +32,7 @@ import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, tp, useL
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, Languages, SearchHit, SetupReport, Staff, Structure } from './types.ts';
 import type { SearchHit as RoomHit } from './workspace/types.ts';
+import { itemAt } from './workspace/scope.ts';
 import { companyEmblem, OWNER_PICTURE, personPicture, rolePicture } from './images.ts';
 import { ChooseHandle, kindLabel, ProfileDrawer, useProfile, type Profile } from './workspace/Profile.tsx';
 import type { Unread } from './workspace/types.ts';
@@ -503,8 +504,8 @@ function Console({ device, staff, recovered, signOut }: {
     label: hit.excerpt,
     description: [hit.author.principal === 'owner' ? t('Owner') : hit.author.name ?? '', one.company].filter(Boolean).join(' · '),
     leftSection: <Avatar size={18} radius="xl" src={personPicture(hit.author.principal, hit.author.picture)} alt="" />,
-    // Opened in its thread, where a reply is read and a message is drawn with what was said around it.
-    onClick: () => open('rooms', { companyId: one.companyId, item: `${hit.roomId}~${hit.threadOf ?? hit.messageId}` }),
+    // Opened where it was said: the room around it, marked, or its thread at it when it is a reply (STATUS 2.218).
+    onClick: () => open('rooms', { companyId: one.companyId, item: itemAt({ roomId: hit.roomId, threadOf: hit.threadOf, position: hit.position }) }),
   })));
   const HIT_LABEL: Record<SearchHit['kind'], string> = { task: t('Task'), decision: t('Decision'), memory: t('Memory') };
   const foundActions: SpotlightActionData[] = found.map((hit) => ({

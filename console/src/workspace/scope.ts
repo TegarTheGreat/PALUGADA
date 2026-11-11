@@ -29,6 +29,11 @@ export interface Scope {
   phone: boolean;
   openThread: (messageId: string) => void;
   /**
+   * Opens the room around a message, marked: at the top of its room, or in its thread when it is a reply (STATUS
+   * 2.218). A message found, pinned, named in Activity or linked opens this way.
+   */
+  openAt: (message: { roomId: string; threadOf: string | null; position: number | null }) => void;
+  /**
    * "Ask the team" about a message: the drawer that gives it as work. With no message (`/task` alone) the drawer
    * opens empty, and what is asked in it is posted to the room as the person's words before it is given as work.
    */
@@ -79,6 +84,42 @@ export function nameOf(person: { principal: string; name?: string | null }): str
 export function tokenOf(person: PersonRef): string {
   if (person.principal === 'owner') return '@owner';
   return `@${person.handle ?? person.name ?? ''}`;
+}
+
+/**
+ * Where a message is opened, as the Rooms page's address names it: its room
+ * around it (`<room>.<position>`), or its thread at it
+ * (`<room>~<message>.<position>`) when it is a reply; a room alone when no
+ * position is given.
+ */
+export function itemAt(message: { roomId: string; threadOf: string | null; position: number | null }): string {
+  const at = message.position === null ? '' : `.${message.position}`;
+  return message.threadOf ? `${message.roomId}~${message.threadOf}${at}` : `${message.roomId}${at}`;
+}
+
+/** A message's own address, to share: the console, opened at the message in its room or thread. */
+export function linkTo(companyId: string, message: { roomId: string; threadOf: string | null; position: number }): string {
+  return `${window.location.origin}${window.location.pathname}#/c/${companyId}/rooms?item=${encodeURIComponent(itemAt(message))}`;
+}
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The people the words name, found as the server finds them (STATUS 2.206):
+ * everyone of the company whose token -- `@owner`, a seat's `@handle`, or
+ * `@Name` for a seat with no handle yet -- is written in the words, as a word
+ * of its own and in any case. A handle typed in full mentions its person as
+ * one chosen from the list does, in a message and in an edit (STATUS 2.218).
+ * A seat named by a name that is also someone's handle is left to the handle.
+ */
+export function writtenMentions(body: string, people: PersonRef[]): string[] {
+  const handles = new Set(people.flatMap((person) => (person.handle ? [person.handle.toLowerCase()] : [])));
+  return people.filter((person) => {
+    const token = person.principal === 'owner' ? 'owner' : person.handle ?? person.name;
+    if (!token) return false;
+    if (person.principal !== 'owner' && !person.handle && handles.has(token.toLowerCase())) return false;
+    return new RegExp(`(^|[^\\w@])@${escaped(token)}(?![\\w-])`, 'iu').test(body);
+  }).map((person) => person.principal);
 }
 
 /** A room's name in the rail and its header: a direct room is the other people in it. */

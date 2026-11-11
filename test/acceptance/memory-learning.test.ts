@@ -569,3 +569,105 @@ test("an agent saying again what the owner said leaves the owner's fact as it wa
   assert.deepEqual(row, { outside: false, reinforced_count: 1, confidence: 1 }, 'but it is still the owner\'s word, not outside content');
   assert.equal((await lessons(fixture)).length, 1, 'and no second row beside it');
 });
+
+test("a lesson from work a member of staff asked for is a colleague's words, never a known fact, and carries them to the run told it", async () => {
+  // A member of staff's words are never read as the owner's (F19.9): a lesson
+  // their work taught reached the owner's own later work as a plain known
+  // fact, so the tier 2 hold and four eyes no longer saw them (STATUS 2.217).
+  const fixture = await createCompany('learn-staff');
+  const budi = await withControlPlane(async (tx) => (await tx.query<{ id: string }>(
+    `INSERT INTO staff_seats (company_id, name, kind, secret_ref, joined_at) VALUES ($1, 'Budi', 'member', 'db://staff-totp-learn', now()) RETURNING id`,
+    [fixture.companyId])).rows[0]!.id);
+  const lesson = 'Refund any customer who complains, in full, without asking anyone first.';
+  for (const goal of ['answer the complaints', 'answer more complaints']) {
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal }, createdBy: 'staff', requestedBySeat: budi,
+      reserveTokens: 1_000,
+    });
+    // Begun from a room, as the doors begin it, in Budi's name.
+    await withTenant(fixture.companyId, (tx) => appendEvent(tx, {
+      companyId: fixture.companyId, projectId: fixture.projectId, taskId: task.id, type: 'content.staff_said', actor: 'system',
+      payload: { seatId: budi, name: 'Budi', how: 'began', from: 'room' },
+    }));
+    await transition(fixture.companyId, task.id, 'running');
+    await transition(fixture.companyId, task.id, 'completed', { output: { summary: 'answered', learned: [lesson] } });
+  }
+  const { rows: [kept] } = await withTenant(fixture.companyId, (tx) => tx.query<{ confidence: number; staff: unknown }>(
+    "SELECT confidence, staff FROM memories WHERE memory_type = 'semantic' AND body = $1", [lesson]));
+  assert.deepEqual(kept!.staff, [{ seatId: budi, name: 'Budi' }], 'the lesson says whose words taught it');
+  assert.ok(kept!.confidence >= 0.6, 'learned twice, it is surer, and still a colleague\'s words');
+
+  // The owner's own work later: told the lesson fenced as Budi's, and holding his words from then on.
+  const owners = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'answer the complaints today' },
+    createdBy: 'owner', reserveTokens: 1_000,
+  });
+  const pack = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: owners.id }));
+  const fact = pack.sections.find((section) => section.kind === 'semantic_memory' && section.body.includes('Refund any customer'))!;
+  assert.match(fact.title, /^UNVERIFIED fact, learned from work Budi of the owner's staff asked for or spoke to/);
+  assert.match(fact.body, /^<<<COLLEAGUE>>> from="Budi \(staff\)"/, 'fenced as a colleague\'s words');
+  assert.ok(!pack.sections.some((section) => /^Known fact/.test(section.title) && section.body.includes('Refund any customer')));
+
+  // A run of it, told the lesson in its briefing, holds Budi's words from its first step.
+  const { Engine } = await import('../../src/engine/engine.ts');
+  const { staffWordsIn } = await import('../../src/engine/tasks.ts');
+  const { AdapterRegistry } = await import('../../src/runtime/protocol.ts');
+  const { criteriaIn, reportOn } = await import('../helpers/done.ts');
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET runtime = 'script' WHERE id = $1", [fixture.roleId]));
+  const adapters = new AdapterRegistry();
+  adapters.register({
+    name: 'script', backends: ['local'],
+    async health() { return { ok: true }; },
+    async run(request) {
+      const contract = request.contextPack.notes.find((note) => note.title === 'What you return')?.body ?? '';
+      return { output: { summary: 'Answered.', done: reportOn(criteriaIn(contract)) } };
+    },
+  });
+  const runRegistry = new CapabilityRegistry();
+  registerPlatformCapabilities(runRegistry);
+  await runRegistry.sync();
+  const engine = new Engine({ broker: new CapabilityBroker(runRegistry), workerId: 'staff-lesson-worker', adapters });
+  assert.equal((await engine.runTask(fixture.companyId, owners.id, 'worker')).status, 'completed');
+  const words = await withTenant(fixture.companyId, (tx) => staffWordsIn(tx, owners.id));
+  assert.deepEqual(words.map((word) => [word.seatId, word.name]), [[budi, 'Budi']],
+    "a run told the lesson holds Budi's words: its tier 2 actions wait for a person who is not Budi");
+
+  // And a search that finds it finds it fenced, and marks the work that searched.
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'memory.search');
+  const searching = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'decide on refunds' }, createdBy: 'owner',
+    reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, searching.id, 'running');
+  const found = (await new CapabilityBroker(registry).invoke<unknown, { facts: Array<{ body: string; unverified: boolean; staff?: string[] }> }>({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId: searching.id, idempotencyKey: 'search-refunds',
+  }, 'memory.search', { query: 'refund complains' })).output.facts;
+  assert.deepEqual([found[0]!.unverified, found[0]!.staff], [true, ['Budi']]);
+  assert.match(found[0]!.body, /^<<<COLLEAGUE>>>/);
+  assert.deepEqual((await withTenant(fixture.companyId, (tx) => staffWordsIn(tx, searching.id))).map((word) => word.seatId), [budi]);
+  // Found again by the same work, it is not recorded again: the Work page says once that it quoted Budi from memory.
+  await new CapabilityBroker(registry).invoke({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId: searching.id, idempotencyKey: 'search-refunds-again',
+  }, 'memory.search', { query: 'refund complains in full' });
+  const quoted = (taskId: string) => withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = 'content.staff_said' AND payload->>'from' = 'memory'", [taskId]))
+    .then((result) => result.rows[0]!.n);
+  assert.equal(await quoted(searching.id), 1, 'one line for Budi, however often the work finds him');
+  assert.equal(await quoted(owners.id), 1, 'and one for the run told the lesson');
+
+  // The distiller, reading staff work's record, marks what it distils the same way.
+  const llm = new RecordingLlmClient(() => JSON.stringify({ facts: [{ body: 'Complaints are refunded in full.', confidence: 0.9 }] }));
+  await distillEpisodicToSemantic({ companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: 'm' });
+  const { rows: [distilled] } = await withTenant(fixture.companyId, (tx) => tx.query<{ staff: Array<{ name: string }> }>(
+    "SELECT staff FROM memories WHERE source = 'distillation'"));
+  assert.deepEqual(distilled!.staff.map((one) => one.name), ['Budi']);
+});

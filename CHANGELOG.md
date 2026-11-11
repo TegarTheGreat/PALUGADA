@@ -1209,3 +1209,14 @@ The first version. What it holds, in the order an owner meets it.
   compare with the relay's app. The reference relay keeps what it owes
   across a restart, prints no words unless asked, and takes acts only on
   its own machine's loopback port (STATUS 2.216).
+- The workspace holds a long history and keeps each person to their share:
+  setting a message window on a company with years of talk takes it in short
+  turns while people keep posting, and its archive restores whole; every
+  write in the rooms is held to a number a minute a person, a reaction is
+  one emoji, and the company's room files to a limit you set in Settings.
+  A colleague's words keep their name through what the company learns, a
+  seat is told of a direct message or its name past its daily number, a
+  stranger cannot lock a seat out by its handle, not even from many
+  addresses of one network, and People lets someone a lock kept out sign in
+  again without signing them out, and gives someone whose phone was lost a
+  new authenticator, keeping their rooms and conversations (STATUS 2.217).

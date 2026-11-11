@@ -13,6 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { withControlPlane, withPeople, withRoomPlatform, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
+import { holdToMinute } from './limits.ts';
 import { linkedPeople } from '../relay/people.ts';
 import type { Person as PersonView, Room, RoomListItem } from './contract.ts';
 import { assertPeopleOf, isPerson } from './principal.ts';
@@ -319,6 +320,7 @@ export async function makeTopicRoom(viewer: Viewer, body: Record<string, unknown
     throw new PalugadaError('contract.violation', 'private is true or false', { field: 'private' });
   }
   const members = principalsOf(body.members, 'members', 50);
+  holdToMinute(viewer, 'room');
   const directory = await directoryOf(viewer.companyId);
   const id = randomUUID();
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
@@ -352,6 +354,7 @@ export async function openDirectRoom(viewer: Viewer, body: Record<string, unknow
     throw new PalugadaError('room.too_many_people', `a direct message is for ${DIRECT_MIN} to ${DIRECT_MAX} people, you included; this names ${people.length}`,
       { people: people.length });
   }
+  holdToMinute(viewer, 'direct');
   const named = await assertPeopleOf(viewer.companyId, people.filter((principal) => principal !== viewer.person.principal));
   const key = people.join(',');
   const directory = await directoryOf(viewer.companyId);
@@ -386,6 +389,7 @@ const SHOWS_WORK = ['asked_here', 'needs_people', 'all'] as const;
  * what the company's work puts in front of everyone there.
  */
 export async function changeRoom(viewer: Viewer, roomId: string, body: Record<string, unknown>): Promise<Room> {
+  holdToMinute(viewer, 'change');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
@@ -418,6 +422,7 @@ export async function changeRoom(viewer: Viewer, roomId: string, body: Record<st
 
 /** A topic room closed for good: by its creator or the owner, who is recorded as who archived it (0150). */
 export async function archiveRoom(viewer: Viewer, roomId: string): Promise<Room> {
+  holdToMinute(viewer, 'change');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
@@ -430,8 +435,14 @@ export async function archiveRoom(viewer: Viewer, roomId: string): Promise<Room>
   });
 }
 
-/** Joining a room anyone may: the company's, a division's, an open topic room; the owner joins a private one too. */
+/**
+ * Joining a room anyone may: the company's, a division's, an open topic room;
+ * the owner joins a private one too. Held to the person's minute with
+ * leaving: each takes the company's room clock and tells every console
+ * (STATUS 2.217).
+ */
 export async function joinRoom(viewer: Viewer, roomId: string): Promise<Room> {
+  holdToMinute(viewer, 'join');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
@@ -453,6 +464,7 @@ export async function joinRoom(viewer: Viewer, roomId: string): Promise<Room> {
 
 /** Leaving a room: what it owed the person goes with them (0150). Nobody leaves the company room or a direct one. */
 export async function leaveRoom(viewer: Viewer, roomId: string): Promise<void> {
+  holdToMinute(viewer, 'join');
   await withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);
     if (room.kind === 'company') throw new PalugadaError('room.company_room_stays', 'everyone stays in the company room', { roomId });
@@ -469,6 +481,7 @@ export async function leaveRoom(viewer: Viewer, roomId: string): Promise<void> {
 export async function changeMembers(viewer: Viewer, roomId: string, body: Record<string, unknown>): Promise<Room> {
   const add = principalsOf(body.add, 'add', 50);
   const remove = principalsOf(body.remove, 'remove', 50);
+  holdToMinute(viewer, 'members');
   const directory = await directoryOf(viewer.companyId);
   return withPeople(viewer.companyId, viewer.person, async (tx) => {
     const room = await visibleRoom(tx, viewer, roomId);

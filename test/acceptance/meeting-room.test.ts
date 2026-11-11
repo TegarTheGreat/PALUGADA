@@ -357,11 +357,14 @@ test('a timed wait is refused on any task that is not a meeting the owner joined
     const meeting = await runningMeeting(fixture);
     await assert.rejects(ask(fixture, meeting, { question: 'Shall we raise prices?', waitMinutes: 10 }), onlyJoined);
 
-    // Joined: within the window, the owner's alone, and a whole number of minutes from 1 to 120.
+    // Joined: within the window, the owner's alone, and a whole number of
+    // minutes from 5 to 120, as the owner's own window is: a run gives the
+    // owner no less time than the owner could give themselves (STATUS 2.217).
     ok(await owner.post(`/meetings/${meeting}/join`, { minutes: 20 }));
     await seated(fixture, 'Sari', 'approver');
     await assert.rejects(ask(fixture, meeting, { question: 'Shall we raise prices?', waitMinutes: 21 }), refused(/no longer than the 20 minutes/));
     await assert.rejects(ask(fixture, meeting, { question: 'Shall we raise prices?', waitMinutes: 0 }), refused(/waitMinutes/));
+    await assert.rejects(ask(fixture, meeting, { question: 'Shall we raise prices?', waitMinutes: 4 }), refused(/from 5 to 120/));
     await assert.rejects(ask(fixture, meeting, { question: 'Shall we raise prices?', waitMinutes: 121 }), refused(/waitMinutes/));
     await assert.rejects(ask(fixture, meeting, { question: 'Shall we raise prices?', waitMinutes: 10, to: 'Sari' }), refused(/the owner's alone/));
     assert.deepEqual(await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM inbox_items WHERE kind = 'escalation'")).then((r) => r.rowCount), 0,

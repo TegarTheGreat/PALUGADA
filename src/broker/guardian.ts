@@ -26,7 +26,7 @@ import { randomUUID } from 'node:crypto';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
-import { wrapUntrusted } from '../context/builder.ts';
+import { askedByNames, wrapUntrusted } from '../context/builder.ts';
 import * as budget from '../engine/budget.ts';
 import { carryFor } from '../engine/pricing.ts';
 import { PalugadaError } from '../errors.ts';
@@ -86,10 +86,16 @@ async function whatWasAsked(
   tx: TenantClient,
   taskId: string,
   reruns = 0,
-): Promise<{ request: string | null; brief: string | null; known: boolean; staff?: { who: string; goal: string | null } }> {
+): Promise<{
+  request: string | null; brief: string | null; known: boolean;
+  staff?: { who: string; goal: string | null };
+  outside?: { what: string; goal: string | null };
+}> {
   // A task the owner handed a ticket a run filed is the run's words too; a
   // rerun is whatever the task it reruns was, which is followed.
-  const { rows } = await tx.query<{ id: string; goal: unknown; owners: boolean; rerun_of: string | null; staff: boolean; asked_by: string[] | null }>(
+  const { rows } = await tx.query<{
+    id: string; goal: unknown; owners: boolean; rerun_of: string | null; staff: boolean; outside_room: string | null;
+  }>(
     `WITH RECURSIVE up AS (
        SELECT id, parent_task_id, input, created_by, idempotency_key, 0 AS depth FROM tasks WHERE id = $1
        UNION ALL
@@ -100,10 +106,10 @@ async function whatWasAsked(
      SELECT id, input->'goal' AS goal,
             -- Work a member of staff began is their request, not the owner's (F19.9), by the names it was asked under.
             created_by = 'staff' AS staff,
-            CASE WHEN created_by = 'staff' THEN ARRAY(
-              SELECT DISTINCT e.payload->>'name' FROM events e
-               WHERE e.task_id = up.id AND e.type = 'content.staff_said' AND e.payload->>'how' = 'began'
-                 AND coalesce(e.payload->>'name', '') <> '') END AS asked_by,
+            -- And words from outside PALUGADA the owner gave as work are not the owner's request either (STATUS 2.217).
+            (SELECT e.payload->>'capability' FROM events e
+              WHERE e.task_id = up.id AND e.type = 'content.read_outside' AND e.payload->>'source' = 'room'
+              ORDER BY e.occurred_at LIMIT 1) AS outside_room,
             CASE WHEN coalesce(idempotency_key, '') LIKE 'rerun:%' THEN substr(idempotency_key, 7) END AS rerun_of,
             created_by IN ('owner', 'scheduler', 'webhook')
               AND coalesce(idempotency_key, '') NOT LIKE 'rerun:%'
@@ -115,18 +121,24 @@ async function whatWasAsked(
   );
   const text = (goal: unknown) => (typeof goal === 'string' && goal.trim() ? goal.trim() : null);
   const own = rows[0];
-  const brief = own && !own.owners && !own.rerun_of && !own.staff ? text(own.goal) : null;
+  const brief = own && !own.owners && !own.rerun_of && !own.staff && own.outside_room === null ? text(own.goal) : null;
   for (const row of rows) {
-    if (row.owners) return { request: text(row.goal), brief, known: true };
+    if (row.owners && row.outside_room === null) return { request: text(row.goal), brief, known: true };
     if (row.staff) {
-      const names = row.asked_by ?? [];
+      const names = await askedByNames(tx, row.id);
       const who = names.length === 0 ? 'a member of the owner\'s staff'
         : names.length === 1 ? `${names[0]}, a member of the owner's staff` : `${names.join(', ')}, members of the owner's staff`;
       return { request: null, brief, known: false, staff: { who, goal: text(row.goal) } };
     }
+    if (row.outside_room !== null) {
+      return { request: null, brief, known: false, outside: { what: row.outside_room || 'a message from outside', goal: text(row.goal) } };
+    }
     if (row.rerun_of && reruns < 8) {
       const first = await whatWasAsked(tx, row.rerun_of, reruns + 1);
-      return { request: first.request, brief: brief ?? first.brief, known: first.known, ...(first.staff ? { staff: first.staff } : {}) };
+      return {
+        request: first.request, brief: brief ?? first.brief, known: first.known,
+        ...(first.staff ? { staff: first.staff } : {}), ...(first.outside ? { outside: first.outside } : {}),
+      };
     }
   }
   return { request: null, brief, known: false };
@@ -145,18 +157,21 @@ export class Guardian {
   }
 
   async judge(call: GuardedCall): Promise<GuardianVerdict> {
-    const { request, brief, known, staff, chain } = await withTenant(call.companyId, async (tx) => ({
+    const { request, brief, known, staff, outside, chain } = await withTenant(call.companyId, async (tx) => ({
       ...(await whatWasAsked(tx, call.taskId)),
       chain: await ancestryForTask(tx, call.taskId),
     }));
     const asked = [
       `What the owner asked for: ${request
         ?? (staff ? `(not the owner's: ${staff.who}, asked for this work)`
-          : known ? '(the owner named no goal for it)' : '(not known: an agent set this work, and the owner\'s own request is not in it)')}`,
+          : outside ? `(not the owner's: the owner gave ${outside.what} as work)`
+            : known ? '(the owner named no goal for it)' : '(not known: an agent set this work, and the owner\'s own request is not in it)')}`,
       ...(chain.length > 0 ? [`What that is for: ${renderAncestry(chain)}`] : []),
       // A member of staff's request is shown as theirs, fenced: it is the
       // reference for what the work was meant to do, and it is not the owner's.
       ...(staff?.goal ? [wrapUntrusted(`the request of ${staff.who}`, staff.goal)] : []),
+      // Words from outside PALUGADA are shown as the data they are, as an email's are.
+      ...(outside?.goal ? [wrapUntrusted(`${outside.what}, given as work`, outside.goal)] : []),
       ...(brief ? [wrapUntrusted('the brief this work was handed, written by an agent rather than the owner', brief)] : []),
       '',
       `The action: ${call.capability}, at tier ${call.tier}.`,

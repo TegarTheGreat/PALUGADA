@@ -306,6 +306,105 @@ test('erasing a company leaves no setting of its people', async () => {
   assert.deepEqual(seats.rows.map((row) => row.id), [dewi], 'its seats went with it, handles and all');
 });
 
+test("erasing a company removes its people's sign-in secrets, and no other company's", async () => {
+  // A seat's authenticator secret is sealed in the deployment's store under a
+  // name of its own; only revoking the seat removed it, so an erased
+  // company's people's seeds were kept for ever (STATUS 2.217).
+  const closing = await createCompany('closing-seeds');
+  const staying = await createCompany('staying-seeds');
+  const sealedSeat = async (fixture: Fixture, name: string) => withControlPlane(async (tx) => {
+    const secret = `staff-totp-${name}`;
+    await tx.query(
+      `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
+       VALUES ($1, '\\x000000000000000000000000', '\\x00', '\\x00000000000000000000000000000000', 'k1')`, [secret]);
+    await tx.query(
+      `INSERT INTO staff_seats (company_id, name, kind, secret_ref, joined_at) VALUES ($1, $2, 'member', $3, now())`,
+      [fixture.companyId, name, `db://${secret}`]);
+    return secret;
+  });
+  const gone = await sealedSeat(closing, 'siticlosing');
+  const kept = await sealedSeat(staying, 'dewistaying');
+  await closeCompany(closing.companyId, 30);
+  await graceOver(closing.companyId);
+  assert.deepEqual((await eraseDueCompanies()).failed, []);
+  const left = await withControlPlane((tx) => tx.query<{ name: string }>(
+    'SELECT name FROM deployment_secrets WHERE name = ANY($1::text[]) ORDER BY name', [[gone, kept]]));
+  assert.deepEqual(left.rows.map((row) => row.name), [kept]);
+});
+
+test('erasing a company takes it off every relay, and the relay can still be changed as the console sends it', async () => {
+  // A relay kept the erased company's id, so every save of its settings was
+  // refused as naming a company that is not the deployment's (STATUS 2.217).
+  const closing = await createCompany('closing-relay');
+  const staying = await createCompany('staying-relay');
+  const relays = await withControlPlane(async (tx) => {
+    const made: string[] = [];
+    for (const [name, companies] of [['both', [closing.companyId, staying.companyId]], ['only', [closing.companyId]]] as const) {
+      const { rows } = await tx.query<{ id: string }>(
+        `INSERT INTO relays (name, url, envelopes_url, public_key, fingerprint, versions, features, mode, status, companies, paired_at, salt)
+         VALUES ($1, $2, $2, $3, $4, '{1}', '{}', 'push', 'paired', $5, now(), $6) RETURNING id`,
+        [name, `https://${name}.relay.example`, Buffer.alloc(32, made.length + 1), name === 'both' ? 'A'.repeat(24) : 'B'.repeat(24),
+          companies, Buffer.alloc(32, 9)]);
+      made.push(rows[0]!.id);
+    }
+    return made;
+  });
+  await closeCompany(closing.companyId, 30);
+  await graceOver(closing.companyId);
+  assert.deepEqual((await eraseDueCompanies()).failed, []);
+  const { rows } = await withControlPlane((tx) => tx.query<{ name: string; status: string; companies: string[] }>(
+    'SELECT name, status, companies::text[] AS companies FROM relays WHERE id = ANY($1::uuid[]) ORDER BY name', [relays]));
+  assert.deepEqual(rows.map((row) => [row.name, row.status, row.companies]), [
+    ['both', 'paired', [staying.companyId]],
+    ['only', 'revoked', []],
+  ], 'each relay hears about what is left; one that heard only about the erased company has nothing to hear, and is ended');
+  const { planRelaySettings } = await import('../../src/relay/relays.ts');
+  const planned = await planRelaySettings(relays[0]!, { companies: [closing.companyId, staying.companyId], mayPress: false });
+  assert.deepEqual(planned.changes.companies, [staying.companyId], 'an id the relay already had and that is gone is let go, not refused');
+});
+
+test("erasing a company waits for a relay's own work on it rather than deadlocking with it", async () => {
+  // Relay work takes the relay's row and then, by its foreign key, the
+  // company's; the erasure took the company's row and then each relay's, so
+  // the two at once deadlocked and the erasure waited a minute to try again
+  // (STATUS 2.208, 2.217). A relay that hears about every company, and one
+  // that names the company, are both waited for.
+  for (const every of [false, true]) {
+    const closing = await createCompany(`closing-race-${every ? 'all' : 'named'}`);
+    const relayId = await withControlPlane(async (tx) => (await tx.query<{ id: string }>(
+      `INSERT INTO relays (name, url, envelopes_url, public_key, fingerprint, versions, features, mode, status, companies, all_companies,
+                           paired_at, salt)
+       VALUES ('race', 'https://race.relay.example', 'https://race.relay.example', $1, $2, '{1}', '{}', 'push', 'paired', $3, $4, now(), $5)
+       RETURNING id`,
+      [Buffer.alloc(32, every ? 3 : 4), (every ? 'C' : 'D').repeat(24), every ? [] : [closing.companyId], every, Buffer.alloc(32, 9)]))
+      .rows[0]!.id);
+    await closeCompany(closing.companyId, 30);
+    await graceOver(closing.companyId);
+
+    // The relay's work, as a notice to a person is written: the relay's row first.
+    const relayWork = new pg.Client({ connectionString: connectionString('admin') });
+    await relayWork.connect();
+    try {
+      await relayWork.query('BEGIN');
+      await relayWork.query('SELECT id FROM relays WHERE id = $1 FOR UPDATE', [relayId]);
+      const erasing = eraseDueCompanies();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      // Then an envelope for the company, which takes the company's row by its key.
+      await relayWork.query(`INSERT INTO relay_outbox (id, relay_id, company_id, type, body) VALUES (gen_random_uuid(), $1, $2, 'ping', '{}')`,
+        [relayId, closing.companyId]);
+      await relayWork.query('COMMIT');
+      const pass = await erasing;
+      assert.deepEqual(pass.failed.map((one) => one.reason), [], every ? 'a relay of every company' : 'a relay that names it');
+      assert.deepEqual(pass.erased.map((one) => one.companyId), [closing.companyId]);
+    } finally {
+      await relayWork.end();
+    }
+    const { rows } = await withControlPlane((tx) => tx.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM relay_outbox WHERE company_id = $1', [closing.companyId]));
+    assert.equal(rows[0]!.n, 0, 'the envelope the relay wrote went with the company');
+  }
+});
+
 test('the worker erases a company whose day has come, and a worker kept to one company does not', async () => {
   const fixture = await createCompany('worker-erases');
   await lived(fixture, 'credential-crm-worker');

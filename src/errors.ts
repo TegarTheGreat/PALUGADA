@@ -247,6 +247,12 @@ export type ErrorCode =
   | 'import.part_missing'
   | 'import.too_large'
   | 'import.former_linked'
+  // What one person may do, and how much the rooms keep (STATUS 2.217).
+  | 'workspace.too_fast'
+  | 'reaction.not_emoji'
+  | 'reaction.too_many'
+  | 'room.files_full'
+  | 'message.client_id_used'
   // --- end of the people's workspace ---
   | 'tenant.context_missing'
   /** Section 12: the metrics endpoint was asked for and none is configured. */

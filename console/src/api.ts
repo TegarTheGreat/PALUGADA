@@ -261,6 +261,11 @@ const EXPLAINED: Record<string, string> = {
   'import.part_missing': N('A part of the export has not arrived yet.'),
   'import.too_large': N('That export unpacks to more than PALUGADA reads at once.'),
   'import.former_linked': N('That person is already linked to a seat.'),
+  'workspace.too_fast': N('You are doing that too often. Wait a minute, then try again.'),
+  'reaction.not_emoji': N('A reaction is one emoji.'),
+  'reaction.too_many': N('You have put ten reactions on this message. Take one back first.'),
+  'room.files_full': N('This company\'s room files have reached their limit. The owner can raise it in Settings, or remove some files.'),
+  'message.client_id_used': N('That message was already sent elsewhere. Send it again as a new message.'),
 };
 
 /** What went wrong, in words for the owner. */

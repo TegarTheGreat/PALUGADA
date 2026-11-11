@@ -91,6 +91,14 @@ interface Section {
    * reader (0150), so no agent's reads them either.
    */
   viaControlPlane?: boolean;
+  /**
+   * Its rows are matched to the company's messages by hash, never by a
+   * nested loop. Until the planner has seen a company's rows -- a company
+   * restored or imported from Slack a moment ago -- it takes the company for
+   * one row and looked every reaction's message up among all the company's
+   * messages, which is the square of the history (STATUS 2.217).
+   */
+  hashed?: true;
 }
 
 const SECTIONS: Section[] = [
@@ -98,11 +106,12 @@ const SECTIONS: Section[] = [
     name: 'company',
     // With the measure the owner chose as its headline (0142), which the
     // import maps once the measures are restored, the month its fiscal
-    // year starts in (0144), and whether the owner attends its weekly
-    // meeting and for how long a question there waits (0156).
+    // year starts in (0144), whether the owner attends its weekly meeting
+    // and for how long a question there waits (0156), and how much its room
+    // files may take (0161).
     sql: `SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian,
                  meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id, fiscal_year_start_month,
-                 meeting_owner_joins, meeting_join_minutes
+                 meeting_owner_joins, meeting_join_minutes, room_files_megabytes
             FROM companies`,
   },
   { name: 'projects', sql: 'SELECT id, slug, name, created_at, description, archived_at, work_language FROM projects ORDER BY created_at' },
@@ -382,7 +391,7 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, memory_type, scope_type, scope_id, body, confidence, source,
                  shared, source_event_id, valid_from, superseded_by, approval_state,
                  approved_at, fact_kind, embedding, embedding_model, created_at,
-                 outside, source_task_id, reinforced_count, last_reinforced_at
+                 outside, source_task_id, reinforced_count, last_reinforced_at, staff
             FROM memories ORDER BY created_at`,
   },
   {
@@ -606,6 +615,7 @@ const SECTIONS: Section[] = [
              AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND kind = 'text' AND deleted_at IS NULL)
            ORDER BY created_at, message_id, principal, emoji`,
     viaControlPlane: true,
+    hashed: true,
   },
   {
     name: 'room_pins',
@@ -623,6 +633,7 @@ const SECTIONS: Section[] = [
              AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
            ORDER BY created_at, id`,
     viaControlPlane: true,
+    hashed: true,
   },
   // What a Slack export brought (STATUS 2.214): each import's report, and the
   // old workspace's authors with the private rooms they were in. A room and a
@@ -652,6 +663,7 @@ const SECTIONS: Section[] = [
              AND message_id IN (SELECT id FROM room_messages WHERE company_id = $1 AND deleted_at IS NULL)
            ORDER BY created_at, id`,
     viaControlPlane: true,
+    hashed: true,
   },
   {
     name: 'batch_windows',
@@ -700,7 +712,15 @@ export const EXPORT_SECTION_NAMES: readonly string[] = [
   'llm_traces',
 ];
 
-/** Rows are fetched in pages so a long history does not arrive all at once. */
+/**
+ * Rows are fetched in pages so a long history does not arrive all at once,
+ * from one cursor a section: the query runs once and each page continues
+ * where the last stopped. Paged by `OFFSET`, each page ran the section's
+ * query again and skipped every row before it, which is the square of the
+ * section's size -- a company with ninety thousand messages and their
+ * reactions ran past the statement timeout before its archive was written
+ * (STATUS 2.217).
+ */
 const PAGE_SIZE = 500;
 /** PostgreSQL's `date` (pg_type.oid 1082). */
 const DATE_TYPE = 1082;
@@ -711,15 +731,21 @@ async function streamSection(
   sql: string,
   write: ArchiveWriter,
   params: unknown[] = [],
+  hashed = false,
 ): Promise<number> {
-  let offset = 0;
   let total = 0;
 
+  // The plan is made as the cursor is declared, so the setting is lifted again at once.
+  if (hashed) {
+    const { rows: setting } = await tx.query<{ was: string }>(
+      "SELECT current_setting('enable_nestloop') AS was, set_config('enable_nestloop', 'off', true)");
+    await tx.query(`DECLARE archive_section NO SCROLL CURSOR FOR ${sql}`, params);
+    await tx.query("SELECT set_config('enable_nestloop', $1, true)", [setting[0]!.was]);
+  } else {
+    await tx.query(`DECLARE archive_section NO SCROLL CURSOR FOR ${sql}`, params);
+  }
   for (;;) {
-    const { rows, fields } = await tx.query<Record<string, unknown>>(
-      `${sql} LIMIT ${PAGE_SIZE} OFFSET ${offset}`,
-      params,
-    );
+    const { rows, fields } = await tx.query<Record<string, unknown>>(`FETCH ${PAGE_SIZE} FROM archive_section`);
     // A date column is a day, and is written as one. The driver reads it as midnight where this process runs,
     // which as an instant is the day before east of UTC: an archive written in Jakarta restored every letter,
     // invoice and entry a day early. Its local day is the day the database holds.
@@ -735,8 +761,8 @@ async function streamSection(
       total += 1;
     }
     if (rows.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
   }
+  await tx.query('CLOSE archive_section');
 
   return total;
 }
@@ -770,7 +796,7 @@ export async function exportCompany(
 
       for (const section of SECTIONS) {
         counts[section.name] = section.viaControlPlane
-          ? await streamSection(admin, section.name, section.sql, write, [companyId])
+          ? await streamSection(admin, section.name, section.sql, write, [companyId], section.hashed === true)
           : await streamSection(tx, section.name, section.sql, write);
       }
 

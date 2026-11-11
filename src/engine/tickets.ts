@@ -552,6 +552,8 @@ export async function solveIssue(tx: TenantClient, input: {
     divisionId = solver[0].division_id;
   }
   const lesson = `Issue: ${solved.title}\nRoot cause: ${rootCause}\nDecision: ${decision}`;
+  const { rows: filedBy } = await tx.query<{ seats: string[] }>(
+    'SELECT instigators::text[] AS seats FROM tickets WHERE company_id = $1 AND id = $2', [input.companyId, solved.id]);
   await learn(tx, {
     companyId: input.companyId,
     memoryType: 'semantic',
@@ -559,8 +561,14 @@ export async function solveIssue(tx: TenantClient, input: {
     body: lesson.slice(0, MEMORY_BODY_MAX),
     source: input.solvedBy,
     factKind: 'decision',
-    // The issue's words may be a stranger's as much as the solver's.
+    // The issue's words may be a stranger's as much as the solver's, and a
+    // member of staff's: the seats whose words were in the work that filed
+    // it, and in the work that solved it (F19.9, STATUS 2.217).
     outside: input.outside || solved.outside,
+    staff: [
+      ...await staffOfSeats(tx, input.companyId, filedBy[0]?.seats ?? []),
+      ...(input.taskId ? await staffWordsIn(tx, input.taskId) : []),
+    ],
     ...(input.taskId ? { sourceTaskId: input.taskId } : {}),
   });
   return { issue: solved, todos };

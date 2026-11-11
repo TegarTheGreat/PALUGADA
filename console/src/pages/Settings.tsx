@@ -21,6 +21,7 @@ import { LoadFailed, Loading, Section, StatusBadge } from '../components/ui.tsx'
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { OfficeHoursForm, dayName, type Hours } from '../components/OfficeHours.tsx';
 import { atPasskeyAddress, makePasskey, passkeysSupported, type PasskeyOptions, type RelyingParty } from '../passkey.ts';
+import { RoomFilesLimit } from './settings/RoomFiles.tsx';
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
 const zoneOptions = ZONES.map((zone) => ({ value: zone, label: zone }));
@@ -140,6 +141,8 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
           </Table>
         )}
       </Section>
+
+      <RoomFilesLimit companyId={companyId} />
 
       <Section title={t('Alert thresholds')} description={t('When the company tells you something is going wrong, before it becomes an incident.')}>
         <ActionForm

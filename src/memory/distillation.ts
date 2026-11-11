@@ -32,7 +32,7 @@ import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { wrapUntrusted } from '../context/builder.ts';
 import { LEARNED_CONFIDENCE, learn, remember } from './store.ts';
-import { outsideContentIn } from '../engine/tasks.ts';
+import { outsideContentIn, staffWordsIn, type StaffWord } from '../engine/tasks.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { LlmClient, LlmResponse } from '../llm/client.ts';
 import { outputFrom } from '../llm/json.ts';
@@ -262,6 +262,14 @@ export async function distillEpisodicToSemantic(
     for (const taskId of taskIds) if (await outsideContentIn(tx, taskId)) return true;
     return false;
   });
+  // And whose words among the owner's staff are in it: the record carries a
+  // colleague's request and instructions, and a fact distilled from them is
+  // theirs, told to a run inside their fence (F19.9, STATUS 2.217).
+  const staff = await withTenant(input.companyId, async (tx) => {
+    const words: StaffWord[] = [];
+    for (const taskId of taskIds) words.push(...await staffWordsIn(tx, taskId));
+    return words;
+  });
 
   const began = Date.now();
   const response = await input.llm.complete({
@@ -323,6 +331,7 @@ export async function distillEpisodicToSemantic(
         factKind: 'observation',
         sourceEventId: lastEvent.id,
         outside,
+        staff,
       });
     }
     // The division, matching what the read above compares against. Keyed on

@@ -207,11 +207,18 @@ test('a seat is told at most its daily number, then only the count', async () =>
     const budi = await person(w, 'Budi');
     const sari = await person(w, 'Sari');
     ok(await w.api.call('POST', '/api/me/profile', sari.seat.token, { noticesPerDay: 2, timezone: 'UTC' }));
-    // Four rooms, so four notices nothing coalesces.
-    await said(budi.in, await direct(budi.in, sari.seat), 'One.');
+    // Four replies in threads she began, in four rooms, so four notices
+    // nothing coalesces. A message to her or her name would not be held to
+    // the number (the test below).
+    const rooms = [await companyRoomOf(w.owner)];
     for (const name of ['Kitchen', 'Deliveries', 'Payroll']) {
       const room = String(ok(await budi.in.makeRoom({ name })).room.id);
-      await said(budi.in, room, mention(sari.seat));
+      ok(await sari.in.join(room));
+      rooms.push(room);
+    }
+    for (const room of rooms) {
+      const root = await said(sari.in, room, 'Who has the keys?');
+      await said(budi.in, room, { body: 'I do.', threadOf: root });
     }
     await tell(w.fixture.companyId, w.api.master);
     assert.equal(toldTo(w.relay, sari.phone!).length, 2, 'two, her daily number');
@@ -225,6 +232,47 @@ test('a seat is told at most its daily number, then only the count', async () =>
     const told = toldTo(w.relay, sari.phone!);
     assert.equal(told.length, 3);
     assert.match(told[2].text, /And more yesterday: 2\./);
+  } finally {
+    await w.close();
+  }
+});
+
+test('a direct message and a mention by name reach a seat past its daily number, and spend none of it', async () => {
+  // The daily number keeps a busy day's noise off a seat's phone; a message
+  // to the person, or their name, is not that noise (STATUS 2.217).
+  const w = await workspace('notify-cap-named');
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    ok(await w.api.call('POST', '/api/me/profile', sari.seat.token, { noticesPerDay: 1, timezone: 'UTC' }));
+    const rooms: string[] = [];
+    for (const name of ['Kitchen', 'Deliveries', 'Payroll', 'Stock']) {
+      const room = String(ok(await w.owner.makeRoom({ name })).room.id);
+      ok(await sari.in.join(room));
+      ok(await budi.in.join(room));
+      rooms.push(room);
+    }
+    const [kitchen, deliveries, payroll, stock] = rooms as [string, string, string, string];
+    // A reply in a thread she began spends her one.
+    const root = await said(sari.in, kitchen, 'Who has the keys?');
+    await said(budi.in, kitchen, { body: 'I do.', threadOf: root });
+    await tell(w.fixture.companyId, w.api.master);
+    assert.equal(toldTo(w.relay, sari.phone!).length, 1);
+
+    // Past it, a message to her and her name are told; an @room is the
+    // room's, and a reply too, and both are counted.
+    await said(budi.in, await direct(budi.in, sari.seat), 'Lunch?');
+    await said(budi.in, deliveries, mention(sari.seat));
+    await said(w.owner, payroll, { body: '@room the payslips are out', mentionsRoom: true });
+    const later = await said(sari.in, stock, 'Is the flour in?');
+    await said(budi.in, stock, { body: 'Tomorrow.', threadOf: later });
+    await tell(w.fixture.companyId, w.api.master);
+
+    // Sent in no order of their own: planned in one pass, they are one statement's rows.
+    assert.deepEqual(toldTo(w.relay, sari.phone!).map((one) => one.data.reasons).flat().sort(), ['direct', 'mention', 'reply']);
+    const rows = await noticesOf(w.fixture.companyId, sari.seat.principal);
+    assert.deepEqual(rows.map((row) => `${row.reason} ${row.settled_as}`).sort(),
+      ['direct sent', 'mention capped', 'mention sent', 'reply capped', 'reply sent']);
   } finally {
     await w.close();
   }
@@ -778,6 +826,47 @@ test("a person's notices are kept thirty days, and the rooms' feed two weeks", a
     await withControlPlane((tx) => tx.query("UPDATE people_notices SET created_at = now() - interval '31 days' WHERE id = $1", [young]));
     await planNotices(w.fixture.companyId, { now: new Date(Date.now() + 2 * 3_600_000) });
     assert.deepEqual(await noticesOf(w.fixture.companyId, sari.seat.principal), []);
+  } finally {
+    await w.close();
+  }
+});
+
+test("work kept from the seat that asked for it is told done without what came of it, even at content", async () => {
+  // Work that holds a question put to another seat is shown to the seat who
+  // asked for it without its output (STATUS 2.204); its phone, through a
+  // relay that is a third party, was sent the output's summary all the same
+  // (STATUS 2.217).
+  const w = await workspace('notify-kept-output', { share: 'content' });
+  try {
+    const mira = await person(w, 'Mira', 'member', { share: 'content' });
+    const budi = await person(w, 'Budi', 'member', { share: 'content' });
+    const { companyId } = w.fixture;
+    const work = (goal: string) => ({
+      companyId, projectId: w.fixture.projectId, divisionId: w.fixture.divisionId, roleId: w.fixture.roleId,
+      goalId: w.fixture.goalId, input: { goal }, reserveTokens: 100, createdBy: 'staff' as const, requestedBySeat: mira.seat.id,
+    });
+    const kept = await withTenant(companyId, async (tx) => (await createRootTaskWithin(tx, work('Find out what Budi pays the supplier'))).id);
+    await transition(companyId, kept, 'running');
+    const asked = await inbox.askOwner({
+      companyId, taskId: kept, question: 'What is your salary?', addressee: { seatId: budi.seat.id, name: 'Budi', escalateAfterHours: 24 },
+    });
+    await inbox.answerEscalation(companyId, asked.inboxItemId, 'Rp 9 juta a month', { seat: { id: budi.seat.id, name: 'Budi', kind: 'member' } });
+    await transition(companyId, kept, 'completed', { output: { summary: 'Budi earns Rp 9 juta a month, he told me.' } });
+    // And work of hers that holds nobody else's words, whose result she reads.
+    const own = await withTenant(companyId, async (tx) => (await createRootTaskWithin(tx, work('Count the stock'))).id);
+    await transition(companyId, own, 'running');
+    await transition(companyId, own, 'completed', { output: { summary: '41 bags' } });
+
+    assert.equal(ok(await mira.in.get(`/tasks/${kept}`)).task.output, null, 'the console keeps the result from her');
+    await tell(companyId, w.api.master);
+    const told = toldTo(w.relay, mira.phone!).filter((one) => one.type === 'work_done');
+    assert.equal(told.length, 2);
+    const byTitle = new Map(told.map((one) => [String(one.data.title), one]));
+    const keptNotice = byTitle.get('Find out what Budi pays the supplier')!;
+    assert.match(keptNotice.text, /The work you asked for is done: Find out what Budi pays the supplier\./);
+    assert.equal(keptNotice.data.summary, undefined, 'her phone is told it is done, and not what Budi said');
+    assert.doesNotMatch(JSON.stringify(keptNotice), /9 juta/);
+    assert.equal(byTitle.get('Count the stock')!.data.summary, '41 bags', 'her own work tells her what came of it');
   } finally {
     await w.close();
   }

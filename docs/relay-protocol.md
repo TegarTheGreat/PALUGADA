@@ -705,7 +705,7 @@ before anything else is read of it.
 | `408` | `{ "ok": false, "code": "relay.stale", "tolerance": 300, "now" }` | signed more than 300 seconds from the deployment's `now` |
 | `409` | `{ "ok": false, "code": "inbox.not_open", "text" }` | a press for an item that has closed: `text` says how, in the person's language, and nothing changes |
 | `410` | `{ "ok": false, "code": "relay.link_ended" }` | the link has ended |
-| `422` | `{ "ok": false, "code" }` | refused, by one of the codes below, or by the inbox's own rule (such as `approval.own_instigation`: four eyes) |
+| `422` | `{ "ok": false, "code" }` | refused, by one of the codes below, or by the inbox's or the rooms' own rule (such as `approval.own_instigation`: four eyes; or `message.client_id_used`, `room.too_fast` and `room.not_member` for a reply) |
 | `409` | `{ "ok": false, "code": "relay.in_progress" }` | the same envelope is still being taken, by this request's twin or a replica that stopped: send it again under the same id after a few seconds, and it is answered as it was answered, or, once two minutes have passed with nothing settled, taken afresh with whatever the first attempt spent given back |
 | `400`, `500` | `{ "error", "code" }`, without `ok` | the deployment failed for a reason that is no answer to the envelope: nothing it asked for was done, and the same envelope, sent again under its id, is taken afresh |
 | `429` | `{ "ok": false, "code": "relay.throttled" }` | too many: the answer carries `Retry-After`, the whole seconds until there is room, and a relay sends nothing more to the deployment until then |

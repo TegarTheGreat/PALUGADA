@@ -1276,3 +1276,28 @@ test('an archive taken while people talk names nothing it does not carry, and re
     await talked.api.close();
   }
 });
+
+test('a restore lets nobody into a private room the archive says they left, its maker included', async () => {
+  // A private room's maker was given access as the room was read in, so a
+  // restore let a seat back into a room it had been taken out of (STATUS 2.217).
+  const fixture = await createCompany('export-rooms-left');
+  const { consoleWithSettings } = await import('../helpers/owner-console.ts');
+  const { ok, personIn, seated } = await import('../helpers/rooms.ts');
+  const api = await consoleWithSettings();
+  try {
+    const owner = personIn(api, await api.signIn(), fixture.companyId);
+    const seat = await seated(fixture, 'Rina Wati', 'member', { handle: 'rina' });
+    const rina = personIn(api, seat.token, fixture.companyId);
+    const made = String(ok(await rina.makeRoom({ name: 'rencana', private: true, members: ['owner'] })).room.id);
+    ok(await owner.members(made, { remove: [seat.principal] }));
+    const lines: ArchiveLine[] = [];
+    await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+    const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+    const access = await withControlPlane((tx) => tx.query<{ principal: string }>(
+      `SELECT a.principal FROM room_access a JOIN rooms r ON r.company_id = a.company_id AND r.id = a.room_id
+        WHERE a.company_id = $1 AND r.name = 'rencana' ORDER BY a.principal`, [restored.companyId]));
+    assert.deepEqual(access.rows.map((row) => row.principal), ['owner'], 'the maker who was taken out stays out');
+  } finally {
+    await api.close();
+  }
+});

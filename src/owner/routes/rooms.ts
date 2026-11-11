@@ -18,8 +18,9 @@
  */
 import { PalugadaError } from '../../errors.ts';
 import { giveAsWork, stopWork, tellTheWork } from '../../workspace/doors.ts';
+import { holdToMinute } from '../../workspace/limits.ts';
 import {
-  deleteMessage, editMessage, follow, historyOf, messageIdOf, messagePage, pin, postMessage, react, threadView,
+  deleteMessage, editMessage, follow, historyOf, mayPostNow, messageIdOf, messagePage, pin, postMessage, react, threadView,
 } from '../../workspace/messages.ts';
 import { changePeopleMeeting, setPeopleMeeting } from '../../workspace/people-meetings.ts';
 import { principalOf } from '../../workspace/principal.ts';
@@ -44,7 +45,7 @@ function refuseClaims(body: Record<string, unknown>): void {
 }
 
 /** Who is asking, in the company the path names: from the session, never the body. */
-export function viewerOf(context: RouteContext): Viewer {
+export function viewerOf(context: Pick<RouteContext, 'session' | 'staff' | 'params'>): Viewer {
   return {
     companyId: String(context.params.companyId ?? '').toLowerCase(),
     person: principalOf(context.session, context.staff),
@@ -146,15 +147,26 @@ export function roomRoutes(kit: RouteKit): Route[] {
       handle: posted(async (viewer, { params, body }) => ({ room: await changeMembers(viewer, roomIdOf(params.roomId), body) })),
     },
     {
-      // The person's own place: how loudly the room tells them things, and until when it is quiet.
+      // The person's own place: how loudly the room tells them things, and
+      // until when it is quiet. Held to the person's minute here, not in
+      // `placeSettings`, which a phone's mute through a relay also calls: that
+      // one spends a token a notice brought, and is held by the notices (STATUS 2.217).
       method: 'POST',
       pattern: '/api/companies/:companyId/rooms/:roomId/settings',
-      handle: posted(async (viewer, { params, body }) => placeSettings(viewer, roomIdOf(params.roomId), body)),
+      handle: posted(async (viewer, { params, body }) => {
+        holdToMinute(viewer, 'place');
+        return placeSettings(viewer, roomIdOf(params.roomId), body);
+      }),
     },
     {
+      // A read mark: it moves the person's badges on every console, so it is
+      // held to their minute, here for the same reason as the settings above.
       method: 'POST',
       pattern: '/api/companies/:companyId/rooms/:roomId/read',
-      handle: posted(async (viewer, { params, body }) => markRead(viewer, roomIdOf(params.roomId), body)),
+      handle: posted(async (viewer, { params, body }) => {
+        holdToMinute(viewer, 'read');
+        return markRead(viewer, roomIdOf(params.roomId), body);
+      }),
     },
     {
       method: 'GET',
@@ -171,6 +183,8 @@ export function roomRoutes(kit: RouteKit): Route[] {
       method: 'POST',
       pattern: '/api/companies/:companyId/rooms/:roomId/messages',
       maxBodyBytes: POST_MAX_BYTES,
+      // A person past their minute's messages is told so before their body is read.
+      admit: (context) => mayPostNow(viewerOf(context)),
       handle: posted(async (viewer, { params, body }) => postMessage(viewer, roomIdOf(params.roomId), body, {
         peopleFolder: body.files === undefined || body.files === null ? null : folderOf(viewer),
       })),

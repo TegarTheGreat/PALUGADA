@@ -20,6 +20,7 @@
  */
 import { withControlPlane, withPeople, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
+import { holdToMinute } from './limits.ts';
 import { likePattern } from '../owner/search.ts';
 import type { FileView, MessageView, PersonRef, SearchHit } from './contract.ts';
 import { isPerson } from './principal.ts';
@@ -146,7 +147,10 @@ function hitOf(row: HitRow, text: string, directory: Directory): SearchHit {
  * `from` to one person, and `files=1` also searches the files' names.
  */
 export async function searchRooms(viewer: Viewer, query: URLSearchParams): Promise<{ hits: SearchHit[]; before: number | null }> {
+  // A search reads what the person may see until it has a page, which for a
+  // word said nowhere is the whole company: held to a person's minute (STATUS 2.217).
   const asked = askedOf(query);
+  holdToMinute(viewer, 'search');
   const directory = await directoryOf(viewer.companyId);
   const rows = await withPeople(viewer.companyId, viewer.person, (tx) => found(tx, asked, HITS_PER_PAGE + 1));
   const page = rows.slice(0, HITS_PER_PAGE);

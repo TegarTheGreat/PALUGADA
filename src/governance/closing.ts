@@ -37,7 +37,7 @@ import { removeCompanyFiles } from '../capabilities/files.ts';
 import { erasePeopleFiles, peopleFolderOf } from '../workspace/files.ts';
 import type { CharterRepository } from './charter-repository.ts';
 import { browserSecretName } from '../browser/cookies.ts';
-import { forgetCompanyAtRelays } from '../relay/relays.ts';
+import { forgetCompanyAtRelays, forgetCompanyOnRelays, holdRelaysOf } from '../relay/relays.ts';
 
 /** How long a closing company waits, in days: at least a week to notice a mistake, at most a quarter. */
 export const CLOSING_GRACE_DAYS = { least: 7, most: 90 } as const;
@@ -213,6 +213,12 @@ export async function removeWhatErasuresLeft(disk: ErasureDisk): Promise<LeftBeh
 
 async function eraseCompany(companyId: string): Promise<Erasure | null> {
   return withControlPlane(async (tx) => {
+    // The relays it changes first, each relay's row as every change of a
+    // relay's links and outbox takes it, and only then the company's: relay
+    // work holds a relay's row and then needs the company's, so taking the
+    // company's first deadlocked with it (STATUS 2.208, 2.217). A company
+    // found not due below has taken them for nothing but a moment.
+    const relays = await holdRelaysOf(tx, companyId);
     // Locked, and checked again under the lock: two workers that both saw it
     // due erase it once, a closing kept a moment ago is not erased, and one
     // that another worker has just failed to erase waits its turn.
@@ -240,8 +246,14 @@ async function eraseCompany(companyId: string): Promise<Erasure | null> {
        SELECT token_ref FROM chat_channels WHERE company_id = $1 AND token_ref IS NOT NULL
        UNION ALL
        SELECT secret_ref FROM chat_channels WHERE company_id = $1 AND secret_ref IS NOT NULL`, [companyId]);
-    const sealed = held.map((row) => row.secret_ref)
-      .filter((reference) => reference.startsWith(`db://${CREDENTIAL_SECRETS}`) || reference.startsWith('db://chat-'))
+    // And its people's authenticator secrets (0110), which the seats' rows
+    // name and which only revoking a seat removed: the cascade takes the
+    // seats, and the seeds they signed in with stayed (STATUS 2.217).
+    const { rows: seeds } = await tx.query<{ secret_ref: string }>(
+      "SELECT secret_ref FROM staff_seats WHERE company_id = $1 AND secret_ref LIKE 'db://staff-totp-%'", [companyId]);
+    const sealed = [...held, ...seeds].map((row) => row.secret_ref)
+      .filter((reference) => reference.startsWith(`db://${CREDENTIAL_SECRETS}`) || reference.startsWith('db://chat-')
+        || reference.startsWith('db://staff-totp-'))
       .map((reference) => reference.slice('db://'.length));
     // And its browser's cookies, sealed under a name made from its id: a
     // sign-in to every site its work used (src/browser/cookies.ts).
@@ -251,6 +263,9 @@ async function eraseCompany(companyId: string): Promise<Erasure | null> {
       `INSERT INTO company_erasures (company_id, slug, name, closed_at, counts)
        VALUES ($1, $2, $3, $4, $5) RETURNING erased_at`,
       [companyId, company.slug, company.name, company.closing_at, JSON.stringify(counts)]);
+    // Every relay that heard about it, on the rows taken above, before the
+    // cascade takes the company's links and envelopes on them.
+    await forgetCompanyOnRelays(tx, relays, companyId, new Date());
     await tx.query("SELECT set_config('app.erase_company', $1, true)", [companyId]);
     // Not a key of the company's, so not reached by the cascade: a sign-in
     // for a vendor that was under way.

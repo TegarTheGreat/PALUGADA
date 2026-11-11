@@ -169,6 +169,10 @@ test('every table holding tenant data is protected', async () => {
     // owner's chat, like the Telegram topics, and no agent's business.
     'whatsapp_receipts',
     'whatsapp_sent',
+    // Each handle's wrong sign-in codes (STATUS 2.217): kept for the handle
+    // as typed, held by a seat or by nobody, so it names no company; the
+    // control plane's, and the application role has no grant.
+    'handle_sign_ins',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

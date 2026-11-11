@@ -890,6 +890,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/join/confirm': 'the same invite, confirmed with that person\'s own authenticator',
   '/api/companies/:companyId/staff': 'letting another person in is the owner\'s, with their device and by their own hand',
   '/api/companies/:companyId/staff/:seatId/revoke': 'who is seated is the owner\'s to change, on the People page',
+  '/api/companies/:companyId/room-files/limit': 'how much people\'s room files may take decides whose posts are refused, and is set by the owner in Settings beside what they take now',
   '/api/auth/sign-out-everywhere': 'signing out is the owner\'s',
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',

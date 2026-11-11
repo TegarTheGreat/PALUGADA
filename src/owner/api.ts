@@ -202,13 +202,14 @@ import {
 import { ceoBriefsOwner } from './ceo-briefing.ts';
 import { closeFirstHour, firstHourOf } from './first-hour.ts';
 import { changeSettings, settingsChange } from './profile.ts';
-import { handleOf, pictureOf, seatRequest, StaffSeats, type StaffSession } from './staff.ts';
+import { countedAddress, handleOf, pictureOf, seatRequest, StaffSeats, type StaffSession } from './staff.ts';
 import { staffMay } from './staff-policy.ts';
 import {
   EventStream, StreamRegistry, WithStatus, peopleFilesApart, peopleFilesFolder, type Route, type RouteKit, type StreamOpener,
 } from './route.ts';
 import { findRoutes } from './routes/find.ts';
 import { importRoutes } from './routes/imports.ts';
+import { limitRoutes } from './routes/limits.ts';
 import { meetingRoutes } from './routes/meetings.ts';
 import { peopleRoutes } from './routes/people.ts';
 import { relayRoutes } from './routes/relay.ts';
@@ -796,12 +797,13 @@ export class OwnerApi {
             const proof = proofFrom(body);
             // A member of staff names their handle (F19.22): that seat's
             // secret alone is read, a wrong code counts against that handle
-            // wherever it comes from, and the owner's door is never tried.
+            // wherever it comes from, at most three from this address
+            // (STATUS 2.217), and the owner's door is never tried.
             if (body.handle !== undefined) {
               if (!('totp' in proof)) {
                 throw new PalugadaError('contract.violation', 'a member of staff signs in with their handle and the code their app shows', {});
               }
-              const named = await this.#staff.signInAs(body.handle, proof.totp);
+              const named = await this.#staff.signInAs(body.handle, proof.totp, address);
               this.#signInThrottle.succeeded(address);
               return { token: named.token, expiresAt: named.expiresAt.toISOString(), staff: staffOf(named) };
             }
@@ -6380,6 +6382,7 @@ export class OwnerApi {
       ...meetingRoutes(kit),
       ...findRoutes(kit),
       ...importRoutes(kit),
+      ...limitRoutes(kit),
     ];
   }
 
@@ -7226,6 +7229,16 @@ export class OwnerApi {
       }
     }
 
+    if (match.route.admit) {
+      try {
+        match.route.admit({ session, staff, params: match.params });
+      } catch (error) {
+        if (!(error instanceof PalugadaError)) throw error;
+        send(res, statusFor(error.code), { error: error.message, code: error.code, details: error.details });
+        return;
+      }
+    }
+
     let body: Record<string, unknown> = {};
     let raw: Buffer = Buffer.alloc(0);
     if (req.method === 'POST') {
@@ -7508,6 +7521,11 @@ const PEOPLE_REFUSALS: Readonly<Partial<Record<ErrorCode, number>>> = {
   'import.part_missing': 409,
   'import.too_large': 400,
   'import.former_linked': 409,
+  'workspace.too_fast': 429,
+  'reaction.not_emoji': 400,
+  'reaction.too_many': 409,
+  'room.files_full': 409,
+  'message.client_id_used': 409,
 };
 
 /**
@@ -7606,14 +7624,19 @@ function hostLabel(request: IncomingMessage): string {
   return host || 'palugada';
 }
 
-/** Who is asking: the connection's address, or behind a proxy the one it vouches for. */
+/**
+ * Who is asking: the connection's address, or behind a proxy the one it
+ * vouches for, as wrong codes are counted under it (`countedAddress`): an
+ * IPv6 address by its /64, so one machine's many addresses are one caller
+ * to the throttle and to a handle's lock (STATUS 2.217).
+ */
 function addressOf(request: IncomingMessage, behindProxy: boolean): string {
   if (behindProxy) {
     const forwarded = request.headers['x-forwarded-for'];
     const last = (Array.isArray(forwarded) ? forwarded.join(',') : forwarded ?? '').split(',').at(-1)?.trim();
-    if (last) return last;
+    if (last) return countedAddress(last);
   }
-  return request.socket.remoteAddress ?? 'unknown';
+  return countedAddress(request.socket.remoteAddress ?? 'unknown');
 }
 
 /** A configuration kind from a path, or a refusal that lists the ones there are. */

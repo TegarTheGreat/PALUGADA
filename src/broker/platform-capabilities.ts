@@ -19,7 +19,7 @@
  * itself.
  */
 import { withTenant } from '../db/tenant.ts';
-import { wrapUntrusted } from '../context/builder.ts';
+import { wrapColleague, wrapUntrusted } from '../context/builder.ts';
 import { recall } from '../memory/store.ts';
 import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
@@ -31,7 +31,8 @@ import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/sta
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus, type GoalWarning } from '../domain/goals.ts';
 import { PLAN_LINES_MAX, proposeGoalPlan, type PlanLineInput } from '../domain/goal-plans.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
-import { createSubTask, getTask, outsideContentIn, transition } from '../engine/tasks.ts';
+import { createSubTask, getTask, outsideContentIn, quoteStaff, transition } from '../engine/tasks.ts';
+import { JOIN_MINUTES } from '../engine/meeting.ts';
 import { assertHandedOutAsWork, earlierSolves, listTickets, openTicket, readTicket, solveIssue, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
 import { queryMeaning } from '../knowledge/meaning.ts';
@@ -62,6 +63,8 @@ export interface MemorySearchInput {
 export interface MemorySearchResult {
   facts: Array<{
     body: string; confidence: number; source: string; unverified: boolean; outside?: boolean;
+    /** The members of staff whose work taught it: their words, not the company's knowledge (0161). */
+    staff?: string[];
     /** The day it was recorded: a price or a status may have changed since, and the record wins. */
     recordedOn: string;
     /** How many days ago that was, so a run need not do the arithmetic against a date it was never told. */
@@ -135,13 +138,23 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           ? (await tx.query<{ project_id: string }>('SELECT project_id FROM tasks WHERE id = $1', [ctx.taskId])).rows[0]?.project_id
           : undefined;
         if (memoryType === 'episodic' && !projectId) return [];
-        return recall(tx, ctx.companyId, {
+        const found = await recall(tx, ctx.companyId, {
           memoryType,
           divisionId: ctx.divisionId,
           projectId,
           text: input.query,
           limit: limit + 1,
         });
+        // A fact learned from work members of staff asked for or spoke to is
+        // their words: the work that found it carries them now, as work told
+        // it in its briefing does, once however often it finds them (F19.9,
+        // STATUS 2.217). The owner's own lesson on an issue their work filed
+        // names them too: the issue's words were not the owner's.
+        const told = found.slice(0, limit).flatMap((memory) => memory.staff);
+        const project = told.length === 0 ? undefined
+          : (await tx.query<{ project_id: string }>('SELECT project_id FROM tasks WHERE id = $1', [ctx.taskId])).rows[0]?.project_id;
+        await quoteStaff(tx, { companyId: ctx.companyId, projectId: project, taskId: ctx.taskId, actor: 'broker', from: 'memory', words: told });
+        return found;
       });
 
       // And the company's documents: the passages the same words point at
@@ -167,19 +180,23 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           forCustomers: found.forCustomers === true,
           passage: wrapUntrusted(`document:${found.title}`, found.body),
         })),
-        facts: facts.slice(0, limit).map((memory) => ({
-          body: memory.body,
-          confidence: memory.confidence,
-          source: memory.source,
-          // The same warning the context pack carries. A fact fetched through a
-          // tool must not arrive more certain than the same fact would have
-          // been in the pack -- nor one learned from outside content arrive
-          // as anything but data (0071).
-          unverified: memory.confidence < 0.6 || memory.outside,
-          recordedOn: memory.validFrom.toISOString().slice(0, 10),
-          ageDays: Math.max(0, Math.floor((Date.now() - memory.validFrom.getTime()) / 86_400_000)),
-          ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
-        })),
+        facts: facts.slice(0, limit).map((memory) => {
+          const staff = [...new Set(memory.staff.map((word) => word.name))];
+          return {
+            body: memory.body,
+            confidence: memory.confidence,
+            source: memory.source,
+            // The same warning the context pack carries. A fact fetched through a
+            // tool must not arrive more certain than the same fact would have
+            // been in the pack -- nor one learned from outside content arrive
+            // as anything but data (0071), nor a colleague's as the company's (0161).
+            unverified: memory.confidence < 0.6 || memory.outside || staff.length > 0,
+            recordedOn: memory.validFrom.toISOString().slice(0, 10),
+            ageDays: Math.max(0, Math.floor((Date.now() - memory.validFrom.getTime()) / 86_400_000)),
+            ...(staff.length > 0 ? { staff, body: wrapColleague(staff.join(', '), memory.body) } : {}),
+            ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
+          };
+        }),
         truncated: facts.length > limit,
       };
     },
@@ -900,15 +917,19 @@ export interface OwnerAskInput {
    */
   to?: string;
   /**
-   * Only in a meeting the owner joined (F19.17): how many minutes, 1 to 120
+   * Only in a meeting the owner joined (F19.17): how many minutes, 5 to 120
    * and no more than the owner gave the meeting, the question waits for the
    * owner before the meeting goes on without the answer.
    */
   waitMinutes?: number;
 }
 
-/** The longest a meeting's question may be told to wait, in minutes: the most the owner can give a meeting (0156). */
-const WAIT_MINUTES_MAX = 120;
+/**
+ * How long a meeting's question may be told to wait, in minutes: what the
+ * owner can give a meeting (0156). A run gives the owner no less time than
+ * the owner could give themselves (STATUS 2.217).
+ */
+const WAIT_MINUTES = JOIN_MINUTES;
 
 export interface OwnerAskResult {
   answered: boolean;
@@ -1034,7 +1055,7 @@ export function ownerAskCapability(
         options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string', minLength: 1 }, description: 'Two to six answers the owner can press.' },
         key: { type: 'string', maxLength: 40, description: 'When a capability says this division holds no key it signs in with: that key\'s name. The owner gives it; you are told when it is there, never what it is.' },
         to: { type: 'string', maxLength: 120, description: 'The person this is for, by name, when it is someone the company has seated and not the owner. They are named in your brief; a name no one has is refused saying who there is.' },
-        waitMinutes: { type: 'integer', minimum: 1, maximum: WAIT_MINUTES_MAX, description: 'Only in a meeting the owner attends, as your brief says: how many minutes the question waits for the owner before the meeting goes on without the answer.' },
+        waitMinutes: { type: 'integer', minimum: WAIT_MINUTES.min, maximum: WAIT_MINUTES.max, description: 'Only in a meeting the owner attends, as your brief says: how many minutes the question waits for the owner before the meeting goes on without the answer.' },
       },
     },
     adapter: 'platform',
@@ -1050,9 +1071,9 @@ export function ownerAskCapability(
       }
       const wait = input.waitMinutes;
       if (wait !== undefined) {
-        if (typeof wait !== 'number' || !Number.isInteger(wait) || wait < 1 || wait > WAIT_MINUTES_MAX) {
+        if (typeof wait !== 'number' || !Number.isInteger(wait) || wait < WAIT_MINUTES.min || wait > WAIT_MINUTES.max) {
           throw new PalugadaError('contract.violation',
-            `waitMinutes is a whole number of minutes from 1 to ${WAIT_MINUTES_MAX}, no more than the owner gave the meeting`, { field: 'waitMinutes' });
+            `waitMinutes is a whole number of minutes from ${WAIT_MINUTES.min} to ${WAIT_MINUTES.max}, no more than the owner gave the meeting`, { field: 'waitMinutes' });
         }
         // Asked of the owner alone, never of a seat: refused before anyone is looked up.
         if (input.to !== undefined && String(input.to).trim() !== '') {

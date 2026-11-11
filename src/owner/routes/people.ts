@@ -14,6 +14,7 @@
  * rest of the workspace does: a person's quiet hours are not a model's to read.
  */
 import { PalugadaError } from '../../errors.ts';
+import { holdToMinute } from '../../workspace/limits.ts';
 import { principalOf } from '../../workspace/principal.ts';
 import { changeSettings, settingsChange, settingsOf } from '../profile.ts';
 import type { Route, RouteContext, RouteKit } from '../route.ts';
@@ -93,8 +94,12 @@ export function peopleRoutes(kit: RouteKit): Route[] {
         const chosen: { handle?: string; picture?: string | null } = {};
         if (body.handle !== undefined) chosen.handle = handleOf(body.handle);
         if (body.picture !== undefined) chosen.picture = pictureOf(body.picture);
-        // Every field is checked before anything is written.
+        // Every field is checked before anything is written, and the change
+        // is then held to the person's minute, as each write of the rooms is
+        // (STATUS 2.217): a handle or a picture is drawn on every colleague's
+        // console. The owner's is counted apart from any company's.
         const change = settingsChange(body);
+        holdToMinute({ companyId: staff ? staff.seat.companyId : '', person }, 'profile');
         if (staff && Object.keys(chosen).length > 0) await kit.staff.choose(staff.seat, chosen);
         await changeSettings(person.principal, staff ? staff.seat.companyId : null, change);
         return profileOf(kit, context);
@@ -165,6 +170,46 @@ export function peopleRoutes(kit: RouteKit): Route[] {
           await kit.hub?.ended({ principal: `seat:${seat.id}` });
         }
         return { seat };
+      },
+    },
+
+    {
+      // A seat's new authenticator, for a phone lost or replaced (STATUS
+      // 2.217): the same person, signed out everywhere, with an invite that
+      // lets whoever opens it in as them, so it takes the owner's code given
+      // now. The streams the seat holds open end in every process, as its
+      // sessions did.
+      method: 'POST',
+      pattern: '/api/companies/:companyId/staff/:seatId/authenticator',
+      handle: async (context) => {
+        refuseWhoWrites(context.body);
+        const companyId = context.params.companyId!;
+        const seatId = seatIdOf(context.params.seatId!);
+        const was = await kit.staff.seat(companyId, seatId);
+        if (!was) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is ended', { seatId });
+        await kit.requireFactor(context, `give ${was.name} a new authenticator`, true);
+        const made = await kit.staff.newAuthenticator(companyId, seatId);
+        kit.streams.endPrincipal(`seat:${seatId}`);
+        await kit.hub?.ended({ principal: `seat:${seatId}` });
+        return made;
+      },
+    },
+
+    {
+      // A seat locked out by wrong codes let in again (STATUS 2.217), with
+      // nothing it holds ended. It takes the owner's code given now: the
+      // lock is what keeps a guesser to a few codes an hour, and a session
+      // that is not the owner's must not be able to lift it again and again.
+      method: 'POST',
+      pattern: '/api/companies/:companyId/staff/:seatId/unlock',
+      handle: async (context) => {
+        refuseWhoWrites(context.body);
+        const companyId = context.params.companyId!;
+        const seatId = seatIdOf(context.params.seatId!);
+        const was = await kit.staff.seat(companyId, seatId);
+        if (!was) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is ended', { seatId });
+        await kit.requireFactor(context, `let ${was.name} sign in again`, true);
+        return kit.staff.unlockHandle(companyId, seatId);
       },
     },
   ];

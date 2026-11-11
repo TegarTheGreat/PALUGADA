@@ -11,6 +11,10 @@
  * adds it to their own authenticator app, types the code the app shows, and
  * is signed in to their seat. Their app and their handle are then how they
  * sign in.
+ *
+ * A link the owner made for a seat's new authenticator (STATUS 2.217) is
+ * opened `again`: the person chose their handle and picture already, so the
+ * page goes straight to the new secret, and what they chose stays.
  */
 import { useEffect, useState } from 'react';
 import {
@@ -33,7 +37,7 @@ interface Offer {
   offer: string;
   secret: string;
   qr: string[];
-  seat: { id: string; name: string; kind: 'viewer' | 'member' | 'approver'; company: string };
+  seat: { id: string; name: string; kind: 'viewer' | 'member' | 'approver'; company: string; handle: string | null; again: boolean };
 }
 
 /** A handle as 0149 shapes it: what the field accepts before the server is asked whether it can be used. */
@@ -57,7 +61,11 @@ export function Join({ code, onSignedIn }: {
 
   useEffect(() => {
     const opening: Promise<Offer> = api('POST', '/api/auth/join', { code });
-    opening.then(setOffer, (failure: unknown) => setError(explain(failure)));
+    opening.then((opened) => {
+      setOffer(opened);
+      // A new authenticator for a seat that joined: nothing to choose again.
+      if (opened.seat.again) setStep('code');
+    }, (failure: unknown) => setError(explain(failure)));
   }, [code]);
 
   // The page is drawn in the language they choose, as the console will be.
@@ -72,7 +80,8 @@ export function Join({ code, onSignedIn }: {
     setError(null);
     try {
       const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/join/confirm', {
-        code, offer: offer?.offer, totp: value, handle,
+        code, offer: offer?.offer, totp: value,
+        ...(offer?.seat.again ? {} : { handle }),
         ...(picture ? { picture } : {}),
         ...(chosenLanguage ? { language: chosenLanguage } : {}),
         ...(quiet.start !== null && quiet.end !== null ? { quietStart: quiet.start, quietEnd: quiet.end } : {}),
@@ -102,8 +111,18 @@ export function Join({ code, onSignedIn }: {
         <Stack gap="lg" align="center">
           <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={56} height={56} />
           <div style={{ textAlign: 'center' }}>
-            <Title order={2}>{offer ? t('Welcome, {name}', { name: offer.seat.name }) : t('Join a company')}</Title>
-            {offer && (
+            <Title order={2}>
+              {offer?.seat.again ? t('A new authenticator for {name}', { name: offer.seat.name })
+                : offer ? t('Welcome, {name}', { name: offer.seat.name }) : t('Join a company')}
+            </Title>
+            {offer?.seat.again && (
+              <Text c="dimmed" size="sm" mt={6}>
+                {offer.seat.handle
+                  ? t('You stay @{handle}, in the same rooms and conversations. Add PALUGADA to the authenticator app on your new phone; the old one no longer signs you in.', { handle: offer.seat.handle })
+                  : t('You stay in the same rooms and conversations. Add PALUGADA to the authenticator app on your new phone; the old one no longer signs you in.')}
+              </Text>
+            )}
+            {offer && !offer.seat.again && (
               <Text c="dimmed" size="sm" mt={6}>
                 {offer.seat.kind === 'approver'
                   ? t('You can follow the company\'s work here, and approve or deny what waits at tier 2 and below. Everything else stays the owner\'s.')
@@ -171,7 +190,9 @@ export function Join({ code, onSignedIn }: {
               <Button fullWidth size="md" loading={busy} disabled={totp.length !== 6} onClick={() => void confirm(totp)}>
                 {t('Join')}
               </Button>
-              <Anchor component="button" type="button" size="sm" onClick={() => setStep('choose')}>{t('Back')}</Anchor>
+              {!offer.seat.again && (
+                <Anchor component="button" type="button" size="sm" onClick={() => setStep('choose')}>{t('Back')}</Anchor>
+              )}
             </>
           )}
           {error && <Alert color="red" variant="light" w="100%">{error}</Alert>}

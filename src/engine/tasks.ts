@@ -163,6 +163,8 @@ export interface StaffWord {
 /**
  * Where derived work took a member of staff's words from (`content.staff_said`'s
  * `from`). `room`: a seat's message in a room that someone else gave as work.
+ * `memory` (written by the engine and `memory.search`, not through
+ * `carriesStaff`): a lesson their work taught, which the run was told.
  */
 export type StaffCarriedFrom = 'rerun' | 'follow_up' | 'ticket' | 'escalation' | 'meeting' | 'quarter' | 'week' | 'month' | 'room';
 
@@ -282,6 +284,40 @@ export async function staffOfSeats(tx: TenantClient, companyId: string, seatIds:
     [companyId, ids]);
   const named = new Map(rows.map((row) => [row.seat_id, row.name]));
   return ids.map((seatId) => ({ seatId, name: named.get(seatId) ?? UNNAMED_STAFF }));
+}
+
+/**
+ * Records that work was told a member of staff's words it was not given by
+ * them (`content.staff_said`, `quoted`, F19.9): a lesson their work taught,
+ * from memory, or what the work a follow-up follows came to carry. Each once
+ * a task and a source: a run tried again, a later attempt or a second search
+ * that finds the same lesson records nothing new, so the Work page says it
+ * once (STATUS 2.217). What holds the work is the same either way.
+ */
+export async function quoteStaff(tx: TenantClient, input: {
+  companyId: string;
+  projectId?: string | undefined;
+  taskId: string;
+  actor: string;
+  from: 'memory' | 'follow_up';
+  words: Iterable<StaffWord>;
+}): Promise<void> {
+  const words = [...input.words];
+  if (words.length === 0) return;
+  const { rows } = await tx.query<{ seat_id: string | null; name: string | null }>(
+    `SELECT payload->>'seatId' AS seat_id, payload->>'name' AS name FROM events
+      WHERE task_id = $1 AND type = 'content.staff_said' AND payload->>'how' = 'quoted' AND payload->>'from' = $2`,
+    [input.taskId, input.from]);
+  const told = new Set(rows.map((row) => `${row.seat_id}:${row.name}`));
+  for (const word of words) {
+    const key = `${word.seatId}:${word.name}`;
+    if (told.has(key)) continue;
+    told.add(key);
+    await appendEvent(tx, {
+      companyId: input.companyId, projectId: input.projectId, taskId: input.taskId, type: 'content.staff_said', actor: input.actor,
+      payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: input.from },
+    });
+  }
 }
 
 /** The seats of the staff whose words are in the work, without the entries no seat survives for. */
@@ -1054,6 +1090,10 @@ async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, o
     .slice(0, LESSONS_PER_RUN);
   if (lessons.length === 0) return;
   const outside = (await outsideContentIn(tx, task.id)) !== null;
+  // And whose words were in the work, which a lesson keeps as outside content
+  // is kept (F19.9, STATUS 2.217): a lesson a colleague's request taught is
+  // never the company's known fact, and a run told it carries their words.
+  const staff = await staffWordsIn(tx, task.id);
   for (const lesson of lessons) {
     await learn(tx, {
       companyId,
@@ -1064,6 +1104,7 @@ async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, o
       source: 'agent',
       factKind: 'observation',
       outside,
+      staff,
       sourceTaskId: task.id,
     });
   }
@@ -1107,6 +1148,7 @@ async function keepEpisode(tx: TenantClient, companyId: string, task: TaskRow, o
     // below the line a search draws between known and unverified, as a lesson is.
     confidence: LEARNED_CONFIDENCE.first,
     outside: (await outsideContentIn(tx, task.id)) !== null,
+    staff: await staffWordsIn(tx, task.id),
     sourceTaskId: task.id,
   });
 }

@@ -11,6 +11,13 @@
  * change that lets someone do more takes the owner's code; one that lets
  * them do less, and a rename, does not. Tier 3, every setting, key and
  * device stay the owner's. Ending a seat signs the person out at once.
+ *
+ * A person whose phone is lost or replaced is given a new authenticator
+ * with the owner's code (STATUS 2.217): signed out everywhere, their phone
+ * unlinked, and a new link that asks only for the code of a new app. They
+ * stay the same person, in the same rooms and conversations. One whose
+ * handle wrong codes have locked is let in again with the owner's code,
+ * signed out of nothing.
  */
 import { useState } from 'react';
 import {
@@ -20,7 +27,7 @@ import { notifications } from '@mantine/notifications';
 import { ApiError, api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import { relative } from '../format.ts';
+import { relative, time } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import { personPicture } from '../images.ts';
 import type { ConsoleContext } from '../App.tsx';
@@ -41,6 +48,8 @@ interface Seat {
   invitePending: boolean;
   sharesName: boolean;
   lastUsedAt: string | null;
+  /** Until when wrong codes keep the seat's handle locked, while they do. */
+  lockedUntil: string | null;
 }
 
 const LADDER: Record<Kind, number> = { viewer: 0, member: 1, approver: 2 };
@@ -96,6 +105,8 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
   // Which of several names a refusal is about, as the line the owner wrote it on.
   const [refusedLine, setRefusedLine] = useState<{ line: number; name: string } | null>(null);
   const [changing, setChanging] = useState<Seat | null>(null);
+  // A new authenticator's link, shown once beside the seats.
+  const [renewed, setRenewed] = useState<{ name: string; link: string } | null>(null);
 
   // The fragment is never sent to a server, so no log keeps the invite.
   const linkFor = (invite: string) => `${window.location.origin}/#/join/${invite}`;
@@ -153,6 +164,35 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
     }
   };
 
+  const renew = async (one: Seat) => {
+    try {
+      let made: { invite: string } | null = null;
+      const done = await requireFactor(t('Give {name} a new authenticator', { name: one.name }), async (proof) => {
+        made = await api('POST', `/api/companies/${companyId}/staff/${one.id}/authenticator`, { proof });
+      });
+      if (!done || !made) return;
+      setRenewed({ name: one.name, link: linkFor((made as { invite: string }).invite) });
+      notifications.show({ color: 'teal', message: t('{name} is signed out everywhere, and their phone is unlinked.', { name: one.name }) });
+      seats.reload();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+
+  // Wrong codes for a handle lock it; the owner, with their code, lets the person try again now (STATUS 2.217).
+  const unlock = async (one: Seat) => {
+    try {
+      const done = await requireFactor(t('Let {name} sign in again', { name: one.name }), async (proof) => {
+        await api('POST', `/api/companies/${companyId}/staff/${one.id}/unlock`, { proof });
+      });
+      if (!done) return;
+      notifications.show({ color: 'teal', message: t('{name} can sign in again.', { name: one.name }) });
+      seats.reload();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+
   const sharing = seats.data?.seats.filter((one) => one.sharesName) ?? [];
 
   return (
@@ -195,6 +235,22 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
         {sharing.length > 0 && (
           <Alert color="yellow" variant="light" mb="md">{t('Two people here share a name. Rename one, so nobody is taken for the other.')}</Alert>
         )}
+        {renewed && (
+          <Alert color="teal" variant="light" mb="md" withCloseButton onClose={() => setRenewed(null)}
+            title={t('Send {name} this link', { name: renewed.name })}>
+            <Stack gap="xs">
+              <Group gap="xs" wrap="nowrap" align="flex-start">
+                <Text size="sm" style={{ wordBreak: 'break-all', minWidth: 0, flex: 1 }}>{renewed.link}</Text>
+                <CopyButton value={renewed.link}>
+                  {({ copied, copy }) => <Button size="xs" variant="light" onClick={copy}>{copied ? t('Copied') : t('Copy the link')}</Button>}
+                </CopyButton>
+              </Group>
+              <Text size="xs" c="dimmed">
+                {t('It works once, for a week, and is shown only now. It asks {name} only for the code of a new authenticator app: their name, handle, rooms and conversations stay theirs.', { name: renewed.name })}
+              </Text>
+            </Stack>
+          </Alert>
+        )}
         {seats.error && !seats.data ? <LoadFailed message={seats.error} retry={seats.reload} />
           : !seats.data ? <Loading rows={2} />
           : seats.data.seats.length === 0 ? <Text size="sm" c="dimmed">{t('Nobody but you yet.')}</Text>
@@ -211,6 +267,9 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
                             <Group gap={6} wrap="nowrap">
                               <Text size="sm" fw={600} style={{ whiteSpace: 'nowrap' }}>{one.name}</Text>
                               {one.sharesName && <Badge size="xs" color="yellow" variant="light">{t('Same name')}</Badge>}
+                              {one.lockedUntil && (
+                                <Badge size="xs" color="red" variant="light">{t('Sign-in locked until {time}', { time: time(one.lockedUntil) })}</Badge>
+                              )}
                             </Group>
                             {one.handle && <Text size="xs" c="dimmed">@{one.handle}</Text>}
                           </div>
@@ -232,6 +291,14 @@ export function People({ ctx }: { ctx: ConsoleContext }) {
                       <Table.Td ta="right">
                         <Group gap={4} justify="flex-end" wrap="nowrap">
                           <Button size="xs" variant="subtle" onClick={() => setChanging(one)}>{t('Change')}</Button>
+                          {one.lockedUntil && (
+                            <Button size="xs" variant="subtle" onClick={() => void unlock(one)}>{t('Let sign in again')}</Button>
+                          )}
+                          {(one.joined || !one.invitePending) && (
+                            <Button size="xs" variant="subtle" onClick={() => void renew(one)}>
+                              {one.joined ? t('New authenticator') : t('New invite')}
+                            </Button>
+                          )}
                           <Button size="xs" variant="subtle" color="red" onClick={() => void end(one)}>{t('End the seat')}</Button>
                         </Group>
                       </Table.Td>

@@ -1112,12 +1112,12 @@ test('a meeting card is heard when it is posted and each time it moves, and its 
 
 /**
  * The stream and keeping (STATUS 2.212): a message's files are framed as the
- * message is, with no name, and what retention takes is framed as removed,
- * a root left without its words too, so an open room draws its page again
- * and drops them. The feed retention keeps is two weeks, and a stream that
+ * message is, with no name, and what retention takes is framed as a change
+ * of its room (STATUS 2.217), a root left without its words too, so an open
+ * room draws its page again and drops them. The feed retention keeps is two weeks, and a stream that
  * comes back from before what is kept is told to read everything again.
  */
-test("a message's files are framed with no name, what retention takes is framed as removed, and a stream from before the kept feed is told to reload", async () => {
+test("a message's files are framed with no name, what retention takes is framed as its room's change, and a stream from before the kept feed is told to reload", async () => {
   const { mkdtemp } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -1152,9 +1152,14 @@ test("a message's files are framed with no name, what retention takes is framed 
 
       await setRetention(fixture.companyId, { messageDays: 30 });
       const at = new Date((aged!.at.getTime() + young!.at.getTime()) / 2 + 30 * 86_400_000);
+      const before = hears.frames.length;
       assert.equal((await runRetention(fixture.companyId, at, { filesRoot: root })).messagesPurged, 2);
-      for (const [id, what] of [[filed, 'the message taken'], [rooted, 'the root left without its words']] as const) {
-        await until(() => about(hears, id).some((frame) => frame.kind === 'delete'), `${what}, framed as removed`);
+      // Retention tells an open room once a turn that the room changed, which
+      // it reloads by, rather than once a message (STATUS 2.217): a long
+      // history's purge took one clock position per message it framed.
+      await until(() => hears.frames.slice(before).some((frame) => frame.kind === 'room' && frame.room === room), 'the room, framed as changed');
+      for (const id of [filed, rooted]) {
+        assert.deepEqual(about(hears, id).filter((frame) => frame.kind === 'delete'), [], 'no frame a message');
       }
       assert.deepEqual(about(hears, reply).map((frame) => frame.kind), ['message'], 'the reply that lives on is not removed');
 

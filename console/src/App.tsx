@@ -25,7 +25,7 @@ import {
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
   IconUserCircle,
 } from '@tabler/icons-react';
-import { api, explain, setToken, whenSignedOut } from './api.ts';
+import { ApiError, api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, tp, useLanguage, type Language } from './i18n.ts';
@@ -496,11 +496,15 @@ function Console({ device, staff, recovered, signOut }: {
   // seat's own company's for a member of staff. Never through `/api/search`,
   // which the owner's assistant may read.
   const [said, setSaid] = useState<Array<{ companyId: string; company: string; hits: RoomHit[] }>>([]);
+  // Each search counts towards the person's searches a minute (STATUS 2.217):
+  // past them the palette says so, rather than look as if nothing matched.
+  const [saidRefused, setSaidRefused] = useState<string | null>(null);
   useEffect(() => {
     const text = query.trim();
     const seatCompany = staff?.companyId ?? null;
     if (text.length < 2 || (!owner && !seatCompany)) {
       setSaid([]);
+      setSaidRefused(null);
       return;
     }
     const words = `q=${encodeURIComponent(text)}`;
@@ -509,10 +513,17 @@ function Console({ device, staff, recovered, signOut }: {
         ? api('GET', `/api/room-search?${words}`).then((answer: { found: Array<{ companyId: string; company: string; hits: RoomHit[] }> }) => answer.found)
         : api('GET', `/api/companies/${seatCompany}/room-search?${words}`)
           .then((answer: { hits: RoomHit[] }) => [{ companyId: seatCompany!, company: '', hits: answer.hits.slice(0, 8) }]))
-        .then(setSaid, () => setSaid([]));
+        .then((found) => {
+          setSaid(found);
+          setSaidRefused(null);
+        }, (failure: unknown) => {
+          setSaid([]);
+          setSaidRefused(failure instanceof ApiError && failure.code === 'workspace.too_fast' ? explain(failure) : null);
+        });
     }, 250);
     return () => clearTimeout(timer);
   }, [query]);
+  const refusedActions: SpotlightActionData[] = saidRefused ? [{ id: 'said-refused', label: saidRefused, disabled: true }] : [];
   const saidActions: SpotlightActionData[] = said.flatMap((one) => one.hits.map((hit) => ({
     id: `said-${hit.messageId}`,
     label: hit.excerpt,
@@ -647,7 +658,7 @@ function Console({ device, staff, recovered, signOut }: {
         // which matched on the server, perhaps in a result the title does
         // not show, so it is not filtered again here.
         actions={[...spotlightActions.filter(matches), ...(foundActions.length > 0 ? [{ group: t('Found'), actions: foundActions }] : []),
-          ...(saidActions.length > 0 ? [{ group: t('Messages'), actions: saidActions }] : [])]}
+          ...(saidActions.length + refusedActions.length > 0 ? [{ group: t('Messages'), actions: [...saidActions, ...refusedActions] }] : [])]}
         filter={(_, actions) => actions}
         nothingFound={t('Nothing matches')}
         highlightQuery

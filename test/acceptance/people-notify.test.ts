@@ -733,3 +733,40 @@ test('migrating a deployment whose rooms have talked starts its notices at the p
     await rm(all, { recursive: true, force: true });
   }
 });
+
+/**
+ * What each person was told is bookkeeping, kept a month and no longer
+ * (STATUS 2.213): the planner removes it hourly, beside the rooms' feed,
+ * which retention keeps two weeks (STATUS 2.212). A notice younger than the
+ * month stays, so a window and a day's count are still read from it.
+ */
+test("a person's notices are kept thirty days, and the rooms' feed two weeks", async () => {
+  const { runRetention } = await import('../../src/retention/retention.ts');
+  const { planNotices } = await import('../../src/owner/member-notify.ts');
+  const w = await workspace('notify-kept');
+  try {
+    const budi = await person(w, 'Budi');
+    const sari = await person(w, 'Sari');
+    const room = await companyRoomOf(w.owner);
+    await said(budi.in, await direct(budi.in, sari.seat), 'Lunch at noon?');
+    await said(budi.in, room, mention(sari.seat));
+    await tell(w.fixture.companyId, w.api.master);
+    const told = await noticesOf(w.fixture.companyId, sari.seat.principal);
+    assert.equal(told.length, 2);
+    const [old, young] = told.map((row) => row.id);
+    await withControlPlane(async (tx) => {
+      await tx.query("UPDATE people_notices SET created_at = now() - interval '31 days' WHERE id = $1", [old]);
+      await tx.query("UPDATE people_notices SET created_at = now() - interval '29 days' WHERE id = $1", [young]);
+      await tx.query("UPDATE room_feed SET created_at = now() - interval '15 days' WHERE company_id = $1", [w.fixture.companyId]);
+    });
+    // The planner's next hourly pass, and the retention stage.
+    await planNotices(w.fixture.companyId, { now: new Date(Date.now() + 2 * 3_600_000) });
+    assert.deepEqual((await noticesOf(w.fixture.companyId, sari.seat.principal)).map((row) => row.id), [young]);
+    const outcome = await runRetention(w.fixture.companyId);
+    assert.ok(outcome.bookkeepingPurged > 0, "the rooms' feed is counted with the bookkeeping");
+    const feed = await withControlPlane((tx) => tx.query('SELECT 1 FROM room_feed WHERE company_id = $1', [w.fixture.companyId]));
+    assert.equal(feed.rows.length, 0, 'what changed in the rooms is kept two weeks');
+  } finally {
+    await w.close();
+  }
+});

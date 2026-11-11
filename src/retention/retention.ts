@@ -415,6 +415,14 @@ const CARD_KINDS = ['work', 'question', 'approval', 'meeting'];
  * was up). Each message goes by its own age, so a busy thread keeps none of
  * its old words, and nothing here waits for a thread to fall quiet.
  *
+ * But for one: the words of a people's meeting not yet ended at `now`, and
+ * not cancelled, wait until it has ended (F19.26, STATUS section 2.215).
+ * Those words are the meeting -- taken, it goes with them; left without
+ * words, it is cancelled by nobody -- and a meeting may be set up to a year
+ * ahead, past any window, so taking them by their age would call off a
+ * meeting nobody called off and remind the people asked of nothing. The
+ * notes under them are replies like any other, and go by their own age.
+ *
  * A relay's copy of a message's excerpt is retracted by the worker's notify
  * stage (`retractRemoved`, STATUS section 2.213), which finds each notice
  * whose message is gone or keeps no words, a tombstone left here included.
@@ -422,7 +430,7 @@ const CARD_KINDS = ['work', 'question', 'approval', 'meeting'];
  * row first, and taken here it would come after the clock and the
  * messages' rows, the reverse of the order a notice going out takes them.
  */
-async function purgeMessages(tx: TenantClient, companyId: string, cutoff: Date | null): Promise<PurgedMessages> {
+async function purgeMessages(tx: TenantClient, companyId: string, cutoff: Date | null, now: Date): Promise<PurgedMessages> {
   // The company's clock before anything is chosen, as every room write takes
   // it first (0150): a reply posted to an old message, or a removal, is then
   // either committed and read here or waits for this pass, and is never
@@ -437,8 +445,11 @@ async function purgeMessages(tx: TenantClient, companyId: string, cutoff: Date |
     `SELECT m.id, m.deleted_at IS NOT NULL AS removed,
             EXISTS (SELECT 1 FROM room_messages r
                      WHERE r.company_id = m.company_id AND r.thread_of = m.id AND NOT r.id = ANY($4::uuid[])) AS replied
-       FROM room_messages m WHERE m.company_id = $1 AND m.thread_of IS NULL AND ${spent}`,
-    [companyId, cutoff, CARD_KINDS, deleted]);
+       FROM room_messages m WHERE m.company_id = $1 AND m.thread_of IS NULL AND ${spent}
+        AND NOT EXISTS (SELECT 1 FROM room_meetings g
+                         WHERE g.company_id = m.company_id AND g.message_id = m.id AND g.cancelled_at IS NULL
+                           AND g.starts_at + make_interval(mins => g.minutes) > $5::timestamptz)`,
+    [companyId, cutoff, CARD_KINDS, deleted, now]);
   deleted.push(...roots.filter((row) => !row.replied).map((row) => row.id));
   const tombstoned = roots.filter((row) => row.replied && !row.removed).map((row) => row.id);
   const paths = await keptPaths(tx, [...deleted, ...tombstoned]);
@@ -463,7 +474,7 @@ export async function purgeExpiredMessages(companyId: string, now = new Date(), 
   const cutoff = policy.messageDays === null ? null : new Date(now.getTime() - policy.messageDays * 86_400_000);
   const purged = await withControlPlane(async (tx) => {
     await roomsOnControlPlane(tx, companyId);
-    const taken = await purgeMessages(tx, companyId, cutoff);
+    const taken = await purgeMessages(tx, companyId, cutoff, now);
     await recordRetention(tx, companyId, 'messages_purged', taken.deleted.length + taken.tombstoned.length, cutoff ?? now);
     return taken;
   });

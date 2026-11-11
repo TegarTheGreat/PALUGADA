@@ -78,41 +78,91 @@ export interface LiveEvent {
   at: string;
 }
 
+/** What a caller of `live` may be told besides each event. */
+export interface LiveOptions {
+  /**
+   * A stream the server will not serve: asked with its status and code, and
+   * when it answers true the stream is not tried again (the room stream on a
+   * server that has none: its caller falls back). Otherwise it is asked for
+   * again, a little later each time, as a dropped stream is.
+   */
+  refused?: (status: number, code: string | undefined) => boolean;
+  /** The stream opened again after the server ended it: what it ended for may have changed who the person is. */
+  reopened?: () => void;
+  /**
+   * Whether the stream is being heard: true once its first bytes arrive,
+   * false when it drops or fails and is asked for again. A stream answered
+   * but held back -- a proxy that buffers it -- is never heard, so its caller
+   * goes on reading on its own clock.
+   */
+  hearing?: (yes: boolean) => void;
+}
+
 /**
  * Listens to a live stream of events (`text/event-stream`) until `signal`
  * aborts. Read with fetch rather than an EventSource, which cannot carry the
  * session's token; a dropped stream is opened again, a little later each
  * time, and signing out ends it.
+ *
+ * The last `id:` the stream sent is kept in memory, never in the browser's
+ * storage, and sent back as `Last-Event-ID` when the stream is opened again,
+ * so a room stream picks up where it left off (STATUS 2.210).
  */
-export async function live(method: 'GET', path: string, heard: (event: LiveEvent) => void, signal: AbortSignal): Promise<void> {
+export async function live<T = LiveEvent>(
+  method: 'GET', path: string, heard: (event: T) => void, signal: AbortSignal, options: LiveOptions = {},
+): Promise<void> {
   let wait = 1_000;
+  let lastId: string | null = null;
+  let opened = false;
+  let flowing = false;
   while (!signal.aborted && token) {
     try {
-      const response = await fetch(path, { method, headers: { authorization: `Bearer ${token}` }, signal });
+      const response = await fetch(path, {
+        method,
+        headers: { authorization: `Bearer ${token}`, ...(lastId === null ? {} : { 'last-event-id': lastId }) },
+        signal,
+      });
       if (response.status === 401) {
         token = null;
         onSignedOut?.();
         return;
       }
-      if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok || !response.body) {
+        const answer = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        if (options.refused?.(response.status, typeof answer.code === 'string' ? answer.code : undefined)) return;
+        throw new Error(`HTTP ${response.status}`);
+      }
       wait = 1_000;
+      if (opened) options.reopened?.();
+      opened = true;
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
+        if (!flowing) {
+          flowing = true;
+          options.hearing?.(true);
+        }
         buffer += decoder.decode(value, { stream: true });
         let end: number;
         while ((end = buffer.indexOf('\n\n')) >= 0) {
           const message = buffer.slice(0, end);
           buffer = buffer.slice(end + 2);
-          const data = message.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('\n');
-          if (data) heard(JSON.parse(data) as LiveEvent);
+          const lines = message.split('\n');
+          const id = lines.find((line) => line.startsWith('id: '));
+          if (id) lastId = id.slice(4);
+          const data = lines.filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('\n');
+          if (data) heard(JSON.parse(data) as T);
         }
       }
     } catch {
       if (signal.aborted) return;
+    }
+    if (flowing) {
+      flowing = false;
+      options.hearing?.(false);
     }
     await new Promise<void>((resolve) => {
       const later = window.setTimeout(resolve, wait);

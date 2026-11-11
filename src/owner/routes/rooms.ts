@@ -4,8 +4,9 @@
  * doors a message becomes work through, and a person's own attention.
  *
  * A route module of the people's workspace (`../route.ts`): the rooms' server
- * writes its routes here, and the live stream, a room's files and people's
- * meetings add theirs. `#buildRoutes` in `../api.ts` serves them beside the
+ * writes its routes here, and the live stream (the last route, served by the
+ * hub in `../../workspace/hub.ts`), a room's files and people's meetings add
+ * theirs. `#buildRoutes` in `../api.ts` serves them beside the
  * owner API's own, and what a staff seat may reach of them is this area's
  * block in `../staff-policy.ts`.
  *
@@ -60,7 +61,7 @@ function posted(handle: (viewer: Viewer, context: RouteContext) => Promise<unkno
 }
 
 /** Every route of the rooms. */
-export function roomRoutes(_kit: RouteKit): Route[] {
+export function roomRoutes(kit: RouteKit): Route[] {
   return [
     {
       // What waits in each company the person may see: the badge's numbers.
@@ -225,6 +226,25 @@ export function roomRoutes(_kit: RouteKit): Route[] {
       method: 'POST',
       pattern: '/api/companies/:companyId/rooms/:roomId/messages/:messageId/stop',
       handle: posted(async (viewer, { params }) => stopWork(viewer, roomIdOf(params.roomId), messageIdOf(params.messageId))),
+    },
+    {
+      // The person's live view of the company (F19.11, STATUS 2.210): what
+      // changed in the rooms they may see, as positions and ids and never a
+      // word, and the company's work as /live tells it, on one stream per tab.
+      // `Last-Event-ID` is the position the console last heard.
+      method: 'GET',
+      pattern: '/api/companies/:companyId/room-stream',
+      handle: async (context) => {
+        const viewer = viewerOf(context);
+        const last = context.request.headers['last-event-id'];
+        return kit.hub.stream({
+          companyId: viewer.companyId,
+          person: viewer.person,
+          kind: viewer.kind,
+          token: (context.staff?.token ?? context.session?.token)!,
+          lastEventId: typeof last === 'string' ? last : null,
+        });
+      },
     },
   ];
 }

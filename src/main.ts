@@ -1199,6 +1199,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       return { ok: database === 'ok' && ok, database, version: VERSION, worker: said };
     },
     ...(scrapeToken ? { metrics: { token: scrapeToken, text: () => metricsText({ worker }) } } : {}),
+    // The live hub LISTENs here, or on the application's own URL; it is
+    // begun by the first stream and closed with the API (STATUS 2.210).
+    ...(env.PALUGADA_LISTEN_DATABASE_URL ? { listenUrl: env.PALUGADA_LISTEN_DATABASE_URL } : {}),
   });
   const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
 

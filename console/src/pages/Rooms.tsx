@@ -41,6 +41,7 @@ import { ThreadPanel } from '../workspace/ThreadPanel.tsx';
 import { Timeline, usePosting, type Pending } from '../workspace/Timeline.tsx';
 import type { MessageView, Person, Room, RoomListItem } from '../workspace/types.ts';
 import { useKeyboardInset } from '../workspace/useKeyboardInset.ts';
+import { useRoomPulse } from '../workspace/useRoomStream.ts';
 
 /** What is open, read from the address. */
 type Open =
@@ -57,7 +58,7 @@ function openOf(item: string | null, owner: boolean): Open {
   return { kind: 'room', roomId, threadId: threadId || null };
 }
 
-/** How often the rail is read again before the room stream exists. */
+/** How often the rail is read again while the room stream is not heard: refused for five tabs open already, or down. */
 const RAIL_EVERY_MS = 30_000;
 
 export function Rooms({ ctx, route }: PageProps) {
@@ -77,20 +78,24 @@ export function Rooms({ ctx, route }: PageProps) {
     go({ ...route, item }, { replace });
   }, [route]);
 
+  // The rail and the room on screen are read again when the room stream says they changed (STATUS 2.210), and on
+  // a clock only while the stream is not heard.
+  const roomId = open.kind === 'room' ? open.roomId : null;
+  const railPulse = useRoomPulse(companyId, (frame) => 'room' in frame && frame.kind !== 'reaction' && frame.kind !== 'pin');
+  const roomPulse = useRoomPulse(companyId, (frame) => 'room' in frame && frame.room === roomId && ['member', 'room', 'pin'].includes(frame.kind));
   const rooms = useLoad<RoomListItem[]>(async () => {
     const answer: { rooms: RoomListItem[] } = await api('GET', `/api/companies/${companyId}/rooms`);
     return answer.rooms;
-  }, [companyId, tick], { every: RAIL_EVERY_MS });
+  }, [companyId, tick], railPulse.live ? { pulse: railPulse.pulse } : { every: RAIL_EVERY_MS });
   const people = useLoad<Person[]>(async () => {
     const answer: { people: Person[] } = await api('GET', `/api/companies/${companyId}/people`);
     return answer.people;
   }, [companyId]);
-  const roomId = open.kind === 'room' ? open.roomId : null;
   const room = useLoad<Room | null>(async () => {
     if (!roomId) return null;
     const answer: { room: Room } = await api('GET', `/api/companies/${companyId}/rooms/${roomId}`);
     return answer.room;
-  }, [companyId, roomId, tick]);
+  }, [companyId, roomId, tick], { pulse: roomPulse.pulse });
   // The same room read again keeps its place on screen; another room starts empty.
   const shownRoom = room.data && room.data.id === roomId ? room.data : null;
 

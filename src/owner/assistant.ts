@@ -166,11 +166,18 @@ interface AnswerCost {
 async function record(
   role: AssistantMessage['role'], body: string, channel: AssistantChannel, companyId: Scope = null, cost: AnswerCost | null = null,
 ): Promise<string> {
-  const { rows } = await withControlPlane((tx) => tx.query<{ id: string }>(
-    `INSERT INTO assistant_messages (role, channel, body, company_id, model, input_tokens, output_tokens, cost_cents)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [role, channel, body.slice(0, 20_000), companyId,
-      cost?.model ?? null, cost?.inputTokens ?? 0, cost?.outputTokens ?? 0, cost?.costCents ?? 0]));
+  const { rows } = await withControlPlane(async (tx) => {
+    const kept = await tx.query<{ id: string }>(
+      `INSERT INTO assistant_messages (role, channel, body, company_id, model, input_tokens, output_tokens, cost_cents)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [role, channel, body.slice(0, 20_000), companyId,
+        cost?.model ?? null, cost?.inputTokens ?? 0, cost?.outputTokens ?? 0, cost?.costCents ?? 0]);
+    // A console open on the conversation hears that it changed, at commit and
+    // with no word of it: the live hub tells the owner's streams alone
+    // (STATUS 2.210). What was said from Telegram appears without a reload.
+    if (companyId !== null) await tx.query("SELECT pg_notify('palugada_people', $1)", [`${companyId}:ceo`]);
+    return kept;
+  });
   return rows[0]!.id;
 }
 

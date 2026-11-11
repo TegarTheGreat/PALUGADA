@@ -212,6 +212,7 @@ import { meetingRoutes } from './routes/meetings.ts';
 import { peopleRoutes } from './routes/people.ts';
 import { relayRoutes } from './routes/relay.ts';
 import { roomRoutes } from './routes/rooms.ts';
+import { RoomHub } from '../workspace/hub.ts';
 import { talkRoutes } from './routes/talk.ts';
 import { ASSISTANT_ACTIONS } from './assistant-actions.ts';
 import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../domain/personas.ts';
@@ -404,6 +405,13 @@ export interface OwnerApiOptions {
    */
   metrics?: { token: string; text: () => Promise<string> };
   /**
+   * Where the live hub LISTENs (PALUGADA_LISTEN_DATABASE_URL): a direct
+   * connection to the database, for a deployment whose application URL goes
+   * through a pooler that does not keep LISTEN. The application's own URL
+   * when absent (STATUS section 2.210).
+   */
+  listenUrl?: string;
+  /**
    * The message channel whose button presses arrive at
    * `/api/channels/telegram` (F10.9). Absent means the route refuses.
    */
@@ -488,6 +496,11 @@ export class OwnerApi {
   readonly #composedBy = new AsyncLocalStorage<'ceo' | 'assistant'>();
   readonly #claims: OwnerClaims;
   readonly #staff: StaffSeats;
+  /**
+   * The live hub (src/workspace/hub.ts): the room stream's reader for each
+   * company listened to, and this process's ear for streams ended in another.
+   */
+  readonly #hub: RoomHub;
   readonly #routes: Route[];
   readonly #signInThrottle = new SignInThrottle();
   readonly #agentJobs = new AgentJobs();
@@ -532,6 +545,12 @@ export class OwnerApi {
     this.#staff = new StaffSeats({
       master: () => options.deploymentSettings?.master(true) ?? null,
       secrets: () => options.deploymentSettings?.secrets ?? null,
+    });
+    this.#hub = new RoomHub({
+      sessions: this.#sessions,
+      staff: this.#staff,
+      streams: this.#streams,
+      ...(options.listenUrl ? { listenUrl: options.listenUrl } : {}),
     });
     this.#routes = this.#buildRoutes();
   }
@@ -588,7 +607,10 @@ export class OwnerApi {
    */
   async close(finishMs = 0): Promise<void> {
     const server = this.#server;
-    if (!server) return;
+    if (!server) {
+      await this.#hub.close();
+      return;
+    }
     this.#server = null;
     this.#letConnectionsGo();
     // A stream never finishes by itself: it is told to end, not given time.
@@ -596,9 +618,13 @@ export class OwnerApi {
     // Before anything is awaited, so no connection is accepted after this line.
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     server.closeIdleConnections();
+    // The hub's own connection goes with the streams it served: left open,
+    // it would keep the process, and a test that made this API, alive.
+    const hub = this.#hub.close();
     if (finishMs <= 0) {
       server.closeAllConnections();
       await closed;
+      await hub;
       return;
     }
     const cut = setTimeout(() => server.closeAllConnections(), finishMs);
@@ -607,6 +633,7 @@ export class OwnerApi {
     } finally {
       clearTimeout(cut);
     }
+    await hub;
   }
 
   /** From here, readiness says no, and each answer not yet begun closes its connection when it is sent. */
@@ -801,8 +828,11 @@ export class OwnerApi {
         handle: async ({ session, staff }) => {
           if (staff) await this.#staff.signOut(staff.token);
           else await this.#sessions.signOut(session!.token);
-          // And what that session holds open: a signed-out tab hears nothing more.
-          this.#streams.endSession(staff ? staff.token : session!.token);
+          // And what that session holds open: a signed-out tab hears nothing
+          // more, here and in every other process of the deployment.
+          const token = staff ? staff.token : session!.token;
+          this.#streams.endSession(token);
+          await this.#hub.ended({ tokenHash: StreamRegistry.hashOf(token) });
           return { ok: true };
         },
       },
@@ -1130,8 +1160,9 @@ export class OwnerApi {
           // In the spelling its streams are filed under (`pathId`).
           const seatId = pathId(params.seatId!, 'a seat');
           await this.#staff.revoke(params.companyId!, seatId);
-          // Its sessions ended with it; so does every stream they opened.
+          // Its sessions ended with it; so does every stream they opened, in every process.
           this.#streams.endPrincipal(`seat:${seatId}`);
+          await this.#hub.ended({ principal: `seat:${seatId}` });
           return { ok: true };
         },
       },
@@ -6204,6 +6235,7 @@ export class OwnerApi {
           await this.#options.mfa.revokeOwnDevice(authenticatorId);
           const signedOut = await this.#sessions.signOutFactor(authenticatorId);
           this.#streams.endFactor(authenticatorId);
+          await this.#hub.ended({ factor: authenticatorId });
           return { signedOut };
         },
       },
@@ -6215,8 +6247,9 @@ export class OwnerApi {
         pattern: '/api/auth/sign-out-everywhere',
         handle: async () => {
           const signedOut = await this.#sessions.signOutAll();
-          // The owner's sessions, every one: the streams they opened end with them.
+          // The owner's sessions, every one: the streams they opened end with them, in every process.
           this.#streams.endPrincipal('owner');
+          await this.#hub.ended({ principal: 'owner' });
           return { signedOut };
         },
       },
@@ -6250,7 +6283,10 @@ export class OwnerApi {
           await this.#requireFactor(body.proof, 'make new recovery codes', null, true);
           const { codes, ended } = await this.#options.mfa.issueRecoveryCodes();
           // The old set's sessions ended with it; so does every stream they opened.
-          for (const authenticatorId of ended) this.#streams.endFactor(authenticatorId);
+          for (const authenticatorId of ended) {
+            this.#streams.endFactor(authenticatorId);
+            await this.#hub.ended({ factor: authenticatorId });
+          }
           return { codes };
         },
       },
@@ -6322,7 +6358,7 @@ export class OwnerApi {
       filesRoot: () => this.#options.files?.root ?? null,
       peopleFilesRoot: (companyId) => peopleFilesFolder(this.#options.files, companyId),
       streams: this.#streams,
-      hub: null,
+      hub: this.#hub,
     };
     return this.#madeKit;
   }
@@ -7225,6 +7261,11 @@ export class OwnerApi {
   async #stream(req: IncomingMessage, res: ServerResponse, stream: EventStream, opener: StreamOpener): Promise<void> {
     const stop = this.#streams.open(opener);
     req.once('close', () => stop.abort());
+    // A client gone while the handler was answering closed before anyone listened for it.
+    if (req.socket.destroyed) stop.abort();
+    // Any stream is ended by a sign-out in another process too, which this
+    // process hears only once its hub listens (src/workspace/hub.ts).
+    void this.#hub.listening();
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-store',
@@ -7235,7 +7276,8 @@ export class OwnerApi {
     const beat = setInterval(() => res.write(': still here\n\n'), STREAM_HEARTBEAT_MS);
     try {
       await stream.run((data, id) => {
-        res.write(`${id ? `id: ${id}\n` : ''}data: ${JSON.stringify(data)}\n\n`);
+        // An id with no data moves the reader's last id and tells it nothing else (the room stream's first message).
+        res.write(`${id ? `id: ${id}\n` : ''}${data === undefined ? '' : `data: ${JSON.stringify(data)}\n`}\n`);
       }, stop.signal);
     } finally {
       clearInterval(beat);

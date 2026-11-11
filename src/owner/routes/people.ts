@@ -135,8 +135,9 @@ export function peopleRoutes(kit: RouteKit): Route[] {
       // them did; what lets them do less, and a rename, takes the session.
       // A kind changed holds at once, since every request reads the seat's
       // kind afresh, and it ends the streams the seat holds open, so nothing
-      // it had open goes on as the kind it was. Its console draws the
-      // controls of its new kind when it is next loaded (STATUS 2.209).
+      // it had open goes on as the kind it was. Its console, told by the
+      // end of its stream, reads who it is again and draws the controls of
+      // its new kind (STATUS 2.209, 2.210).
       method: 'POST',
       pattern: '/api/companies/:companyId/staff/:seatId/change',
       handle: async (context) => {
@@ -158,7 +159,11 @@ export function peopleRoutes(kit: RouteKit): Route[] {
           || (change.asksPerDay !== undefined && change.asksPerDay > was.asksPerDay);
         if (widens) await kit.requireFactor(context, `let ${was.name} do more`, true);
         const seat = await kit.staff.change(companyId, seatId, change);
-        if (seat.kind !== was.kind) kit.streams.endPrincipal(`seat:${seat.id}`);
+        if (seat.kind !== was.kind) {
+          // Here and in every other process: a console whose stream ends reads who it is again (STATUS 2.210).
+          kit.streams.endPrincipal(`seat:${seat.id}`);
+          await kit.hub?.ended({ principal: `seat:${seat.id}` });
+        }
         return { seat };
       },
     },

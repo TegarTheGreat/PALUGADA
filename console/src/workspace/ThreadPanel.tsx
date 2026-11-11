@@ -23,8 +23,9 @@ import { MessageRow } from './MessageRow.tsx';
 import { useScope } from './scope.ts';
 import { PendingRow, usePosting, type Pending } from './Timeline.tsx';
 import type { MessageView, ThreadView } from './types.ts';
+import { useRoomPulse } from './useRoomStream.ts';
 
-/** How often an open thread is read again before the room stream exists. */
+/** How often an open thread is read again while the room stream is not heard: refused for five tabs open already, or down. */
 const POLL_MS = 5_000;
 
 export function ThreadPanel({ roomId, rootId, close, alone }: {
@@ -51,10 +52,15 @@ export function ThreadPanel({ roomId, rootId, close, alone }: {
     }
   }, [companyId, roomId, rootId]);
   useEffect(() => { void load(); }, [load, scope.tick]);
+  // Read again when the room stream says the room changed: a frame names the message that changed, not its
+  // thread, so any change in the room reads the thread (STATUS 2.210); on a clock only while the stream is not heard.
+  const changedHere = useRoomPulse(companyId, (frame) => 'room' in frame && frame.room === roomId && frame.kind !== 'read' && frame.kind !== 'member');
+  useEffect(() => { if (changedHere.pulse > 0) void load(); }, [changedHere.pulse]);
   useEffect(() => {
+    if (changedHere.live) return undefined;
     const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, changedHere.live]);
   // A work's thread is read again the moment the work moves, so its progress and cards keep up with it.
   const taskId = thread?.root.card?.taskId ?? null;
   const pulse = useLivePulse(companyId, (event) => taskId !== null && event.taskId === taskId);

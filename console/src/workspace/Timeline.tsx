@@ -2,11 +2,12 @@
  * A room's messages, oldest at the top (F19.4, F19.10).
  *
  * Read from the server a page at a time, the newest first and earlier ones
- * as the person asks; read again every five seconds while the room is open
- * and the tab is seen, so a card shows its work moving and a colleague's
- * words arrive (the room stream, section 2.210, will tell an open room at
- * once). Grouped by author and minute, divided by day, with a "New" line at
- * the person's read mark as it was when the room was opened. A room is
+ * as the person asks; read again the moment the room stream says the room
+ * changed (STATUS 2.210), so a colleague's words arrive and a card shows its
+ * work moving, and every five seconds while the tab is seen only while the
+ * stream is not heard (refused, down, or not yet open). Grouped by author
+ * and minute, divided by day, with a "New" line at the person's read mark
+ * as it was when the room was opened. A room is
  * marked read only once its newest message has been in view for a second,
  * or when the person presses Esc in it, and the mark only ever rises. Work
  * asked for here is read again the moment the company's live stream says it
@@ -27,6 +28,7 @@ import { t } from '../i18n.ts';
 import { MessageRow } from './MessageRow.tsx';
 import { newClientId, useScope } from './scope.ts';
 import type { MessagePage, MessageView } from './types.ts';
+import { useRoomPulse } from './useRoomStream.ts';
 
 /** A message on its way, drawn before the server answers. */
 export interface Pending {
@@ -41,7 +43,7 @@ export interface Pending {
   then: 'ask' | 'tell' | null;
 }
 
-/** How often an open room is read again before the room stream exists. */
+/** How often an open room is read again while the room stream is not heard: refused for five tabs open already, or down. */
 const POLL_MS = 5_000;
 /** How long the newest message is in view before the room counts as read. */
 const SEEN_MS = 1_000;
@@ -154,12 +156,16 @@ export function Timeline({ roomId, pending, retry, editing, setEditing, shown, e
     }
   }, [companyId, roomId]);
 
-  // Read when opened, when something changed here (a post, a press, an edit), and every few seconds.
+  // Read when opened, when something changed here (a post, a press, an edit), and the moment the room stream says
+  // the room changed (STATUS 2.210); every few seconds only while the stream is not heard.
   useEffect(() => { void latest(); }, [latest, scope.tick]);
+  const changedHere = useRoomPulse(companyId, (frame) => 'room' in frame && frame.room === roomId && frame.kind !== 'read' && frame.kind !== 'member');
+  useEffect(() => { if (changedHere.pulse > 0) void latest(); }, [changedHere.pulse]);
   useEffect(() => {
+    if (changedHere.live) return undefined;
     const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void latest(); }, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [latest]);
+  }, [latest, changedHere.live]);
   // And at once when work shown here moves: the work's own stream names the task, never the room.
   const working = useRef(new Set<string>());
   working.current = new Set(messages.flatMap((message) => (message.card?.taskId ? [message.card.taskId] : [])));

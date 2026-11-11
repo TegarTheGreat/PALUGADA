@@ -16,6 +16,7 @@ import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { LANGUAGES, t } from '../i18n.ts';
 import { PEOPLE_PICTURES, peoplePicture, personPicture } from '../images.ts';
+import { askBrowser, browserPermission, type BrowserPermission } from './notifyInTab.ts';
 
 /** What `/api/me/profile` answers. */
 export interface Profile {
@@ -129,7 +130,11 @@ export function ProfileDrawer({ opened, onClose, profile, changed }: {
   const [draft, setDraft] = useState<Profile | null>(profile);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { if (opened) { setDraft(profile); setError(null); } }, [opened, profile]);
+  // The browser's own answer about notifications, read as the drawer opens: the browser keeps it, not the console.
+  const [permission, setPermission] = useState<BrowserPermission>(browserPermission);
+  useEffect(() => { if (opened) { setDraft(profile); setError(null); setPermission(browserPermission()); } }, [opened, profile]);
+  // Asked only on a press, which is the only time a browser lets a page ask (STATUS 2.210).
+  const ask = () => { void askBrowser().then(setPermission, () => setPermission(browserPermission())); };
   const zones = timeZones();
   const owner = draft?.principal === 'owner';
 
@@ -211,7 +216,20 @@ export function ProfileDrawer({ opened, onClose, profile, changed }: {
             min={0} max={200} value={draft.noticesPerDay}
             onChange={(value) => setDraft({ ...draft, noticesPerDay: typeof value === 'number' ? value : draft.noticesPerDay })} />
           <Switch label={t('Notify me in this browser')} description={t('When this tab is open but hidden, and someone writes to you or mentions you.')}
-            checked={draft.notifyInTab} onChange={(event) => setDraft({ ...draft, notifyInTab: event.currentTarget.checked })} />
+            checked={draft.notifyInTab} onChange={(event) => {
+              const on = event.currentTarget.checked;
+              setDraft({ ...draft, notifyInTab: on });
+              if (on && permission === 'default') ask();
+            }} />
+          {draft.notifyInTab && permission === 'default' && (
+            <Button variant="light" size="xs" onClick={ask} style={{ alignSelf: 'flex-start' }}>{t('Allow in this browser')}</Button>
+          )}
+          {draft.notifyInTab && permission === 'denied' && (
+            <Text size="xs" c="dimmed">{t('This browser blocks notifications from this console. Allow them in its site settings.')}</Text>
+          )}
+          {draft.notifyInTab && permission === 'unsupported' && (
+            <Text size="xs" c="dimmed">{t('This browser cannot show notifications.')}</Text>
+          )}
           {owner && (
             <Switch label={t('Hear from people outside the inbox')}
               description={t('Messages from your staff can reach your phone. They are never inbox items.')}

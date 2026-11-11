@@ -34,6 +34,14 @@ export interface Page {
   press(key: string, modifiers?: { shift?: boolean; alt?: boolean }): Promise<void>;
   /** Draws the page at another size, as a window resized or a phone turned. */
   viewport(size: { width: number; height: number }): Promise<void>;
+  /** Runs `source` in every document this page loads from now on, before the page's own scripts. */
+  beforeLoad(source: string): Promise<void>;
+  /**
+   * Another tab of the same browser, at the same size: it shares the
+   * browser's connections to each origin, as a person's tabs do.
+   */
+  tab(): Promise<Page>;
+  /** Closes the page; the first page of a browser closes the browser with it. */
   close(): Promise<void>;
 }
 
@@ -69,12 +77,12 @@ export async function openPage(
   // stops the browser: a failure that left it running would keep the test
   // file alive after its tests ended, and CI waits six hours for that.
   let socket: WebSocket;
+  let port = '';
   try {
     // The port it chose, which it writes into its profile once it listens. A
     // first start on a fresh machine builds its font cache first, which takes
     // a while (cf. LAUNCH_WAIT_MS in src/browser/cdp.ts).
     const deadline = Date.now() + 60_000;
-    let port = '';
     while (!port && Date.now() < deadline && process_.exitCode === null) {
       port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8').catch(() => '')).split('\n')[0] ?? '';
       if (!port) await new Promise((resolve) => setTimeout(resolve, 100));
@@ -89,16 +97,39 @@ export async function openPage(
       if (!page) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (!page) throw new Error(`${executable} listed no page to drive`);
-    socket = new WebSocket(page.webSocketDebuggerUrl);
-    await new Promise((resolve, reject) => {
-      socket.addEventListener('open', resolve, { once: true });
-      socket.addEventListener('error', reject, { once: true });
-    });
+    socket = await connected(page.webSocketDebuggerUrl);
   } catch (error) {
     await stop();
     throw error;
   }
 
+  // Another tab: a target of its own in the same browser, driven over its own socket.
+  const tab = async (): Promise<Page> => {
+    const made = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json() as { id: string; webSocketDebuggerUrl: string };
+    return drive(await connected(made.webSocketDebuggerUrl), viewport, tab, async () => {
+      await fetch(`http://127.0.0.1:${port}/json/close/${made.id}`).catch(() => undefined);
+    });
+  };
+  return drive(socket, viewport, tab, stop);
+}
+
+/** A socket to one target, open. */
+async function connected(url: string): Promise<WebSocket> {
+  const socket = new WebSocket(url);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', reject, { once: true });
+  });
+  return socket;
+}
+
+/** A page driven over its target's socket; `closed` is what closing it also ends. */
+async function drive(
+  socket: WebSocket,
+  viewport: { width: number; height: number },
+  tab: () => Promise<Page>,
+  closed: () => Promise<void>,
+): Promise<Page> {
   let sent = 0;
   const waiting = new Map<number, (message: { result?: unknown; error?: { message: string } }) => void>();
   socket.addEventListener('message', (event) => {
@@ -171,9 +202,13 @@ export async function openPage(
     viewport: async (size) => {
       await send('Emulation.setDeviceMetricsOverride', { ...size, deviceScaleFactor: 1, mobile: true });
     },
+    beforeLoad: async (source) => {
+      await send('Page.addScriptToEvaluateOnNewDocument', { source });
+    },
+    tab,
     close: async () => {
       socket.close();
-      await stop();
+      await closed();
     },
   };
 }

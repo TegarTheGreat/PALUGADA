@@ -318,8 +318,12 @@ export async function messagePage(viewer: Viewer, roomId: string, query: URLSear
       at === null ? [roomId] : [roomId, at])).rows;
     let rows: MessageRow[];
     if (around !== undefined) {
-      const half = Math.max(Math.floor(limit / 2), 1);
-      rows = [...(await page('AND m.position < $2', 'DESC', around, half)).reverse(), ...await page('AND m.position >= $2', 'ASC', around, limit - half)];
+      // Half before the position and the rest from it, so `limit=1` is the
+      // message at the position itself: what a hidden tab's notification
+      // reads, as its person, for a frame that named it (STATUS 2.210).
+      const half = Math.floor(limit / 2);
+      const earlier = half > 0 ? (await page('AND m.position < $2', 'DESC', around, half)).reverse() : [];
+      rows = [...earlier, ...await page('AND m.position >= $2', 'ASC', around, limit - half)];
     } else if (after !== undefined) {
       rows = await page('AND m.position > $2', 'ASC', after, limit);
     } else if (before !== undefined) {

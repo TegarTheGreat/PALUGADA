@@ -37,7 +37,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/browser/` | each company's browser: Chromium on a pipe, the proxy every request goes through, its sealed cookies, the owner's hold on it, and what runs in a page |
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
-| `src/workspace/` | the people's workspace: rooms, messages, people, cards, doors, the live hub, search, files; `principal.ts` is who a person is |
+| `src/workspace/` | the people's workspace: rooms, messages, people, cards, doors, the live hub (`hub.ts`, the room stream's one reader per company), search, files; `principal.ts` is who a person is |
 | `src/workspace/contract.ts` | the shapes the workspace's routes answer with, written again for the console in `console/src/workspace/types.ts` |
 | `src/owner/route.ts` | the route types and `RouteKit`, what a route module may reach of the owner API |
 | `src/owner/routes/` | the people's workspace's routes, one module per area, served beside `api.ts`'s own |
@@ -53,7 +53,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
 | `console/src/locales/areas/` | one feature's sentences in every language, spread into each dictionary |
-| `console/src/workspace/` | the people's workspace in the console: the Rooms page's rail, timeline, threads, composer, mention picker and cards (drawn by `console/src/pages/Rooms.tsx`), the shapes the server answers with (`types.ts`) and a person's profile (`Profile.tsx`) |
+| `console/src/workspace/` | the people's workspace in the console: the Rooms page's rail, timeline, threads, composer, mention picker and cards (drawn by `console/src/pages/Rooms.tsx`), the shapes the server answers with (`types.ts`), a person's profile (`Profile.tsx`), and the room stream every page listens to, one per tab (`useRoomStream.ts`) |
 | `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem, a role's picture and a person's |
 | `brand/` | the logo in every shape, the banners, and how they were made (`brand/README.md`) |
 | `db/migrations/` | the schema, numbered, append-only |

@@ -620,25 +620,38 @@ export class StaffSeats {
   }
 
   /**
-   * The seats behind many bearer tokens, in one read: the live hub asks this
-   * of every stream it holds, so a seat ended or narrowed elsewhere loses
-   * what it had open (F19.11). A token whose session is over, or whose seat
-   * is ended, is not in the answer.
+   * The seats behind many bearer tokens, in one read. A token whose session
+   * is over, or whose seat is ended, is not in the answer.
    */
   async verifyMany(tokens: readonly string[]): Promise<Map<string, StaffSession>> {
     const byHash = new Map(tokens.map((token) => [tokenHash(token), token]));
     const found = new Map<string, StaffSession>();
-    if (byHash.size === 0) return found;
+    for (const [hash, live] of await this.liveByHash([...byHash.keys()])) {
+      const token = byHash.get(hash)!;
+      found.set(token, { token, ...live });
+    }
+    return found;
+  }
+
+  /**
+   * The same by the tokens' hashes (SHA-256, hex, as `staff_sessions` keeps
+   * them): the live hub asks this of every stream a seat holds open, every
+   * twenty-five seconds, from the hashes its stream registry files them
+   * under, so it keeps no token, and a seat ended or narrowed where no
+   * process heard of it loses what it had open (F19.11, STATUS 2.210).
+   */
+  async liveByHash(hashes: readonly string[]): Promise<Map<string, Omit<StaffSession, 'token'>>> {
+    const found = new Map<string, Omit<StaffSession, 'token'>>();
+    if (hashes.length === 0) return found;
     const { rows } = await withControlPlane((tx) => tx.query<{
       token_hash: string; id: string; company_id: string; name: string; kind: StaffKind; expires_at: Date;
     }>(
       `SELECT s.token_hash, seat.id, seat.company_id, seat.name, seat.kind, s.expires_at
          FROM staff_sessions s JOIN staff_seats seat ON seat.id = s.seat_id
         WHERE s.token_hash = ANY($1::text[]) AND s.ended_at IS NULL AND s.expires_at > $2 AND seat.revoked_at IS NULL`,
-      [[...byHash.keys()], this.#now()]));
+      [[...new Set(hashes)], this.#now()]));
     for (const row of rows) {
-      const token = byHash.get(row.token_hash)!;
-      found.set(token, { token, seat: { id: row.id, companyId: row.company_id, name: row.name, kind: row.kind }, expiresAt: row.expires_at });
+      found.set(row.token_hash, { seat: { id: row.id, companyId: row.company_id, name: row.name, kind: row.kind }, expiresAt: row.expires_at });
     }
     return found;
   }

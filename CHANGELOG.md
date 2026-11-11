@@ -1203,6 +1203,7 @@ The first version. What it holds, in the order an owner meets it.
   one emoji, and the company's room files to a limit you set in Settings.
   A colleague's words keep their name through what the company learns, a
   seat is told of a direct message or its name past its daily number, a
-  stranger cannot lock a seat out by its handle, and People gives someone
-  whose phone was lost a new authenticator, keeping their rooms and
-  conversations (STATUS 2.217).
+  stranger cannot lock a seat out by its handle, not even from many
+  addresses of one network, and People lets someone a lock kept out sign in
+  again without signing them out, and gives someone whose phone was lost a
+  new authenticator, keeping their rooms and conversations (STATUS 2.217).

@@ -39,6 +39,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
 | `src/workspace/` | the people's workspace: rooms, messages, people, cards, doors, the live hub (`hub.ts`, the room stream's one reader per company), search, files; `principal.ts` is who a person is |
 | `src/workspace/import-slack.ts` | the Slack import: an export uploaded in parts under the people folder's `imports/`, read by the worker into rooms in importing mode, and the old workspace's people linked to seats; `src/workspace/zip.ts` reads the ZIP, ZIP64 included, under a cap on everything it unpacks |
+| `src/workspace/limits.ts` | how much one person may write in the rooms a minute, and what a reaction may be; the company's room files limit is `src/workspace/files.ts` |
 | `src/workspace/contract.ts` | the shapes the workspace's routes answer with, written again for the console in `console/src/workspace/types.ts` |
 | `src/owner/route.ts` | the route types and `RouteKit`, what a route module may reach of the owner API |
 | `src/owner/routes/` | the people's workspace's routes, one module per area, served beside `api.ts`'s own |

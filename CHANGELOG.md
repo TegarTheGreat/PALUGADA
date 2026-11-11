@@ -1196,3 +1196,13 @@ The first version. What it holds, in the order an owner meets it.
   has ended, however far ahead it was set. A meeting is not work: no agent
   sees it, its words are never given as work, nothing is spent, and it
   travels with the company's export (STATUS 2.215).
+- The workspace holds a long history and keeps each person to their share:
+  setting a message window on a company with years of talk takes it in short
+  turns while people keep posting, and its archive restores whole; every
+  write in the rooms is held to a number a minute a person, a reaction is
+  one emoji, and the company's room files to a limit you set in Settings.
+  A colleague's words keep their name through what the company learns, a
+  seat is told of a direct message or its name past its daily number, a
+  stranger cannot lock a seat out by its handle, and People gives someone
+  whose phone was lost a new authenticator, keeping their rooms and
+  conversations (STATUS 2.217).

@@ -23,7 +23,7 @@ import { syncRoomCards } from '../../src/workspace/cards.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { fakeRelay, type FakeRelay, type FakeRelayOptions } from '../helpers/fake-relay.ts';
 import { linkFor, noticesOf, tell, toldTo } from '../helpers/notices.ts';
-import { linkThrough, pairThrough, sendOutbox, type Linked } from '../helpers/relay.ts';
+import { linkThrough, opens, pairThrough, sendOutbox, type Linked } from '../helpers/relay.ts';
 import {
   companyRoomOf, ok, personIn, refusedWith, said, seated, type Console, type PersonIn,
 } from '../helpers/rooms.ts';
@@ -299,7 +299,7 @@ test('the people asked are reminded ten minutes before, once, and only while the
     await dispatchPeopleNotices(w.fixture.companyId, { now, linkFor });
     await sendOutbox(w.api.master, now);
 
-    for (const [who, phone] of [['Budi', budi.phone!], ['Sari', sari.phone!]] as const) {
+    for (const [who, phone, token] of [['Budi', budi.phone!, budi.seat.token], ['Sari', sari.phone!, sari.seat.token]] as const) {
       const told = remindedOf(w.relay!, phone);
       assert.equal(told.length, 1, `${who} is reminded once`);
       assert.equal(told[0].urgency, 'normal');
@@ -307,7 +307,7 @@ test('the people asked are reminded ten minutes before, once, and only while the
       assert.deepEqual([told[0].data.room, told[0].data.startsAt, told[0].data.minutes], ['Ops', soon.startsAt, 20]);
       assert.equal(told[0].data.title, 'Rota check before the lunch rush.', 'at content, the setter\'s words');
       assert.deepEqual(told[0].offers ?? [], [], 'a reminder offers nothing to press');
-      assert.match(String(told[0].link), new RegExp(`thread=${soonWords}`), 'it opens the meeting\'s thread, its notes');
+      assert.equal((await opens(w.api, token, told[0].link)).body.threadOf, soonWords, 'it opens the meeting\'s thread, its notes');
     }
     assert.deepEqual(remindedOf(w.relay!, kiki.phone!), [], 'Kiki left the room before it was planned');
     assert.deepEqual(remindedOf(w.relay!, dewi.phone!), [], 'Dewi left before it went');

@@ -80,6 +80,42 @@ export function useRoute(): Route {
 let talkLinked = false;
 
 /**
+ * A relay's notice the console was opened from: its link names only a
+ * handle (`?notice=<handle>`, STATUS section 2.216), which the server
+ * resolves once the person it was for has signed in. Kept here, in memory,
+ * and in the address until then, so the console stores nothing in the
+ * browser and a reload before signing in still opens it.
+ */
+let noticeLinked: string | null = null;
+
+/** The handle of a relay's notice the console was opened from, once; null when there is none. */
+export function takeLinkedNotice(): string | null {
+  const handle = noticeLinked;
+  noticeLinked = null;
+  return handle;
+}
+
+/**
+ * Where a relay's notice opens, as the server resolved its handle: a room
+ * and a thread, a task, or an item, in its company. The address loses the
+ * handle either way.
+ */
+export function openResolvedNotice(opens: { companyId: string; roomId: string | null; threadOf: string | null; itemId: string | null; taskId: string | null } | null): void {
+  if (!opens) {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+    return;
+  }
+  const { companyId, roomId, threadOf, itemId, taskId } = opens;
+  const route: Route = roomId
+    ? { kind: 'company', companyId, page: 'rooms', section: 'company', item: threadOf ? `${roomId}~${threadOf}` : roomId }
+    : taskId
+      ? { kind: 'company', companyId, page: 'work', section: 'company', item: taskId }
+      : { kind: 'company', companyId, page: 'inbox', section: 'company', item: itemId };
+  window.history.replaceState(null, '', `${window.location.pathname}${href(route)}`);
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}
+
+/**
  * Whether the conversation should open: a card in Telegram that the chat
  * may not apply links to `?company=<id>&talk=1`, or `?talk=1` for
  * PALUGADA's own. Answered once, so the drawer does not reopen.
@@ -99,6 +135,8 @@ export function takeLinkedTalk(): boolean {
  */
 export function takeLinkedRoute(): void {
   const query = new URLSearchParams(window.location.search);
+  const notice = query.get('notice');
+  if (notice) noticeLinked = notice;
   const companyId = query.get('company');
   if (query.get('talk') === '1') {
     talkLinked = true;

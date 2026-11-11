@@ -42,10 +42,17 @@ async function approval(companyId: string, tier: 0 | 1 | 2 | 3, summary: string,
   });
 }
 
-/** The offers the relay was sent for one item, by act. */
-function offersFor(relay: FakeRelay, itemLink: string): Record<string, string> {
-  const one = relay.received.filter((received) => received.envelope?.type === 'inbox_item' && String(received.envelope.link).includes(itemLink)).at(-1);
-  assert.ok(one, `the relay was told of ${itemLink}`);
+/**
+ * The offers the relay was sent for one item, by act. A notice's link names
+ * only a handle (STATUS section 2.216), so the envelope is found by what the
+ * outbox keeps beside it.
+ */
+async function offersFor(relay: FakeRelay, itemId: string): Promise<Record<string, string>> {
+  const { rows } = await withControlPlane((tx) => tx.query<{ id: string }>(
+    "SELECT id FROM relay_outbox WHERE type = 'inbox_item' AND item_id = $1", [itemId]));
+  const ids = new Set(rows.map((row) => row.id));
+  const one = relay.received.filter((received) => received.envelope?.type === 'inbox_item' && ids.has(received.envelope.id)).at(-1);
+  assert.ok(one, `the relay was told of ${itemId}`);
   return Object.fromEntries(one.envelope.offers.map((offer: { act: string; token: string }) => [offer.act, offer.token]));
 }
 
@@ -117,7 +124,7 @@ test('an envelope is taken only with the relay\'s signature, fresh, and once', a
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const offers = offersFor(relay, itemId);
+    const offers = await offersFor(relay, itemId);
     const { deployment } = await identityOf(api);
     const at = new Date().toISOString();
     const body = {
@@ -219,7 +226,7 @@ test('a press redeems only an offer made to that person for that item, once', as
     const second = await approval(fixture.companyId, 2, 'Send the invoice');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const offers = offersFor(relay, first);
+    const offers = await offersFor(relay, first);
 
     const denied = await press(api, relay, relayId, linked, offers.deny!);
     assert.equal(denied.status, 200, JSON.stringify(denied.body));
@@ -241,7 +248,7 @@ test('a press redeems only an offer made to that person for that item, once', as
     try {
       const token = await api.signIn();
       const otherId = await pairThrough(api, token, other, { companies: [fixture.companyId], share: 'summary', mayPress: true });
-      const theirs = offersFor(relay, second);
+      const theirs = await offersFor(relay, second);
       const across = await other.push(api.url, otherId, other.sign({ v: 1, type: 'press', at: new Date().toISOString(), token: theirs.approve }));
       assert.deepEqual([across.status, across.body.code], [422, 'relay.press_unknown']);
       assert.equal((await itemState(fixture.companyId, second)).status, 'open');
@@ -278,7 +285,7 @@ test('presses are off until the owner turns them on', async () => {
     const later = await approval(fixture.companyId, 2, 'Send the offer');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const pressed = await press(api, relay, relayId, linked, offersFor(relay, later).approve!);
+    const pressed = await press(api, relay, relayId, linked, (await offersFor(relay, later)).approve!);
     assert.equal(pressed.status, 200, JSON.stringify(pressed.body));
   } finally {
     await close();
@@ -315,7 +322,7 @@ test("a press for a link with a device key needs the device's signature", async 
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const offers = offersFor(relay, itemId);
+    const offers = await offersFor(relay, itemId);
     const unsigned = await press(api, relay, relayId, linked, offers.approve!, { unsigned: true });
     assert.deepEqual([unsigned.status, unsigned.body.code], [422, 'relay.device_sig']);
     // Signed by the device for another token: refused.
@@ -405,7 +412,7 @@ test('a press for a closed item says why and changes nothing', async () => {
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const offers = offersFor(relay, itemId);
+    const offers = await offersFor(relay, itemId);
     await inbox.decide(fixture.companyId, itemId, 'deny', 'not now', { channel: 'app', assurance: 'session' });
     const late = await press(api, relay, relayId, linked, offers.approve!);
     assert.equal(late.status, 409, JSON.stringify(late.body));
@@ -518,7 +525,7 @@ test('the deployment pulls from a relay it cannot be reached by', async () => {
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const offers = offersFor(relay, itemId);
+    const offers = await offersFor(relay, itemId);
     const { deployment } = await identityOf(api);
     const at = new Date().toISOString();
     // The press waits at the relay, which cannot reach the deployment.
@@ -663,7 +670,7 @@ test('text the database cannot keep is refused as such, and an envelope that fai
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const answerOffer = offersFor(relay, asked.inboxItemId).answer!;
+    const answerOffer = (await offersFor(relay, asked.inboxItemId)).answer!;
     const unkept = await press(api, relay, relayId, linked, answerOffer, { answer: 'Rp \u0000 30.000' });
     assert.deepEqual([unkept.status, unkept.body.code], [422, 'relay.malformed']);
     assert.equal((await offerRow(answerOffer)).uses, 0, 'nothing was spent');
@@ -674,7 +681,7 @@ test('text the database cannot keep is refused as such, and an envelope that fai
     // A press whose decision fails for a reason that is no refusal -- the
     // database refused the write -- spends nothing and keeps no answer, so the
     // relay sending the same envelope again is taken, not told it is in hand.
-    const offers = offersFor(relay, itemId);
+    const offers = await offersFor(relay, itemId);
     const { deployment } = await identityOf(api);
     const at = new Date().toISOString();
     const signed = relay.sign({
@@ -710,7 +717,7 @@ test('approve and deny pressed at once for one item: one is taken, the other is 
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
     for (const itemId of items) {
-      const offers = offersFor(relay, itemId);
+      const offers = await offersFor(relay, itemId);
       const answers = await Promise.all([
         press(api, relay, relayId, linked, offers.approve!),
         press(api, relay, relayId, linked, offers.deny!),
@@ -730,7 +737,7 @@ test("a device's signature holds for its own moment and its own link", async () 
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const offers = offersFor(relay, itemId);
+    const offers = await offersFor(relay, itemId);
     const { deployment } = await identityOf(api);
     // A press the device signed long ago, sent now by the relay: refused, as
     // a time out of step rather than a forgery, with the deployment's own
@@ -841,7 +848,7 @@ test('an act a stopped replica left half done is taken over, its buttons given b
         device_sig: deviceSignature(linked.device!.privateKey, { deployment, relay: relayId, recipient: linked.recipient, type: 'press', token, at }),
       });
     };
-    const offers = offersFor(relay, first);
+    const offers = await offersFor(relay, first);
     const envelope = signedPress(offers.approve!);
     await takenAndKilled(relayId, envelope, first, offers.approve!);
     assert.equal((await itemState(fixture.companyId, first)).status, 'open', 'the replica stopped before it decided');
@@ -865,7 +872,7 @@ test('an act a stopped replica left half done is taken over, its buttons given b
     assert.equal(again.status, 200, 'answered as it was answered');
 
     // Left half done and never sent again: the relay loop gives the buttons back on its own.
-    const more = offersFor(relay, second);
+    const more = await offersFor(relay, second);
     await takenAndKilled(relayId, signedPress(more.approve!), second, more.approve!);
     assert.deepEqual([(await offerRow(more.approve!)).uses, (await offerRow(more.deny!)).voided_at !== null], [1, true]);
     await relayPass({ master: () => api.master, now: new Date(Date.now() + 180_000), pullWaitSeconds: 0, awaitPulls: true });
@@ -917,7 +924,7 @@ test("a pulled act's answer is sent back to the relay, a lapsed one's too, and t
     const itemId = await approval(fixture.companyId, 2, 'Send the newsletter');
     await handToRelay(fixture.companyId, relayId);
     await sendOutbox(api.master);
-    const offers = offersFor(relay, itemId);
+    const offers = await offersFor(relay, itemId);
     const { deployment } = await identityOf(api);
     const at = new Date().toISOString();
     const pressed = relay.sign({

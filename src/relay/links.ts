@@ -20,6 +20,7 @@ import { qrMatrix } from '../owner/qr.ts';
 import { companyRef, envelopeBody, envelopeId, recipientId, SHARE_LEVELS, type Share } from './envelope.ts';
 import { enqueue } from './outbox.ts';
 import { covers, relayRow, type RelayRow } from './relays.ts';
+import { fingerprint } from './signature.ts';
 
 /** How long a link code may be claimed. */
 export const LINK_CODE_MINUTES = 10;
@@ -220,15 +221,18 @@ export async function endLinksOf(tx: TenantClient, principal: string, now = new 
  * else; the owner sees every link of their own, the owner's page the rest.
  */
 export async function linksOf(linker: Linker, now = new Date()): Promise<{
-  links: Array<{ id: string; relayId: string; relay: string; label: string | null; status: string; share: Share | null; device: boolean; createdAt: string; claimedAt: string | null }>;
+  links: Array<{
+    id: string; relayId: string; relay: string; label: string | null; status: string; share: Share | null; device: boolean;
+    deviceFingerprint: string | null; createdAt: string; claimedAt: string | null;
+  }>;
   relays: Array<{ id: string; name: string }>;
 }> {
   return withControlPlane(async (tx) => {
     const { rows: links } = await tx.query<{
       id: string; relay_id: string; name: string; label: string | null; status: string; share: Share | null;
-      device: boolean; created_at: Date; claimed_at: Date | null;
+      device: boolean; device_key: Buffer | null; created_at: Date; claimed_at: Date | null;
     }>(
-      `SELECT l.id, l.relay_id, r.name, l.label, l.status, l.share, l.device_key IS NOT NULL AS device, l.created_at, l.claimed_at
+      `SELECT l.id, l.relay_id, r.name, l.label, l.status, l.share, l.device_key IS NOT NULL AS device, l.device_key, l.created_at, l.claimed_at
          FROM relay_links l JOIN relays r ON r.id = l.relay_id
         WHERE l.principal = $1 AND r.status = 'paired'
           AND (l.status = 'active' OR (l.status = 'offered' AND l.code_expires_at > $2))
@@ -239,10 +243,47 @@ export async function linksOf(linker: Linker, now = new Date()): Promise<{
     return {
       links: links.map((row) => ({
         id: row.id, relayId: row.relay_id, relay: row.name, label: row.label, status: row.status, share: row.share,
-        device: row.device, createdAt: row.created_at.toISOString(), claimedAt: row.claimed_at?.toISOString() ?? null,
+        // The device key is the relay's word for what the phone made (STATUS
+        // section 2.216): its fingerprint is shown so the person can compare
+        // it with what their phone shows.
+        device: row.device, deviceFingerprint: row.device_key ? fingerprint(row.device_key) : null,
+        createdAt: row.created_at.toISOString(), claimedAt: row.claimed_at?.toISOString() ?? null,
       })),
       relays: relays.filter((relay) => linker.companyId === null || covers(relay, linker.companyId))
         .map((relay) => ({ id: relay.id, name: relay.name })),
     };
+  });
+}
+
+/** What a notice's link opens in the console: a company, and a room and a thread, an item or a task. */
+export interface NoticeOpens {
+  companyId: string;
+  roomId: string | null;
+  threadOf: string | null;
+  itemId: string | null;
+  taskId: string | null;
+}
+
+/**
+ * What a notice's link opens, asked by the console once its person has
+ * signed in (STATUS section 2.216). A link names only a handle made for one
+ * notice; it opens for the person the notice was for and for nobody else,
+ * the owner included, and only while its envelope is kept, a fortnight, as
+ * long as a relay may keep what it said.
+ */
+export async function openNotice(handle: string, by: Linker): Promise<NoticeOpens> {
+  const unknown = () => new PalugadaError('relay.notice_unknown', 'that notice is not yours, or is too old to open', {});
+  if (!/^[A-Za-z0-9_-]{32}$/.test(handle)) throw unknown();
+  return withControlPlane(async (tx) => {
+    const { rows: [row] } = await tx.query<{
+      company_id: string | null; room_id: string | null; thread_of: string | null; item_id: string | null; task_id: string | null; principal: string;
+    }>(
+      `SELECT o.company_id, o.room_id, o.thread_of, o.item_id, o.task_id, l.principal
+         FROM relay_outbox o JOIN relay_links l ON l.id = o.link_id WHERE o.handle = $1`,
+      [handle]);
+    if (!row || row.company_id === null || row.principal !== by.principal || (by.companyId !== null && row.company_id !== by.companyId)) {
+      throw unknown();
+    }
+    return { companyId: row.company_id, roomId: row.room_id, threadOf: row.thread_of, itemId: row.item_id, taskId: row.task_id };
   });
 }

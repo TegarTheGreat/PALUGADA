@@ -18,7 +18,7 @@ import { PalugadaError } from '../../errors.ts';
 import { principalOf } from '../../workspace/principal.ts';
 import { ensureIdentity, identityView, rotateIdentity } from '../../relay/identity.ts';
 import { INBOUND_MAX_BYTES, MinuteThrottle, receiveFromRelay, signedByAPairedRelay } from '../../relay/inbound.ts';
-import { assertLinkable, endLink, linksOf, offerLink, type Linker } from '../../relay/links.ts';
+import { assertLinkable, endLink, linksOf, offerLink, openNotice, type Linker } from '../../relay/links.ts';
 import {
   addRelay, announceRotation, applyRelaySettings, pairRelay, pairingTerms, pingRelay, planRelaySettings, relaysPage, retryDead, revokeRelay,
 } from '../../relay/relays.ts';
@@ -183,6 +183,15 @@ export function relayRoutes(kit: RouteKit): Route[] {
         if (who.principal === 'owner') await kit.requireFactor(context, 'link a phone', true);
         return offerLink(who, relayId, context.body.share);
       },
+    },
+
+    {
+      // What a notice's link opens: the link a relay is sent names only a
+      // handle, and this answers what it is about, to the person it was for
+      // and nobody else (STATUS section 2.216).
+      method: 'GET',
+      pattern: '/api/relays/notices/:handle',
+      handle: async (context) => openNotice(context.params.handle!, linker(context)),
     },
 
     {

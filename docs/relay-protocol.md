@@ -648,6 +648,19 @@ Its offers end with it.
 
 `{ ids }`: informational; the relay saw these envelopes.
 
+#### `relay_key_rotated`
+
+`{ key, previous: { key, until } }`: the relay has a new key of its own
+(section 2.3). `key` is the new public key, `previous.key` the key PALUGADA
+pinned now, and `until` the time, ISO 8601, until which the relay may still
+sign with the old one. The envelope MUST carry two `v1a` signatures, one by
+the key pinned now and one by `key`, so the relay is shown to hold the new
+key. PALUGADA takes it only so: signed by the old key alone it is refused
+(`relay.key_unproven`), as is one whose `previous.key` is not the key pinned
+now, or a key another relay here holds. Answered with `{ fingerprint, until }`,
+the new key's fingerprint and the moment, never more than seven days on,
+until which PALUGADA takes the old key beside it.
+
 ## 10. Content a relay holds
 
 A relay MUST drop the content of an envelope a retraction names

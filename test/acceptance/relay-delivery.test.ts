@@ -31,7 +31,7 @@ import { Worker } from '../../src/worker.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { fakeRelay, type Received } from '../helpers/fake-relay.ts';
-import { handToRelay, linkThrough, pairThrough, sendOutbox, tomorrow } from '../helpers/relay.ts';
+import { handToRelay, linkThrough, opens, pairThrough, sendOutbox, tomorrow } from '../helpers/relay.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -545,7 +545,8 @@ test("work done, a digest and a closed item reach the owner's phone at the share
     const of = (type: string) => relay.received.find((one) => one.envelope?.type === type)!.envelope;
     // At signal: that something happened, in the owner's words, and nothing of what.
     assert.equal(of('work_done').text, 'Work you gave has finished.');
-    assert.equal(of('work_done').link, notice.url);
+    assert.match(of('work_done').link, /^https:\/\/palugada\.example\/\?notice=/, 'a handle, not the task');
+    assert.equal((await opens(api, token, of('work_done').link)).body.taskId, notice.taskId, 'which opens the task for the owner');
     assert.equal(of('digest').text, 'Your daily digest from PALUGADA is ready.');
     assert.equal(of('inbox_closed').text, 'This no longer needs you.');
     for (const type of ['work_done', 'digest', 'inbox_closed']) {

@@ -21,10 +21,10 @@ import { PalugadaError } from '../errors.ts';
 import { isPushWorthy, closureText, type ClosedItem, type DeliveryResult, type DoneNotice, type NotifiableItem, type OwnerChannel, type RetractOutcome } from '../owner/notify.ts';
 import { closedSaid, digestSaid, doneSaid, itemSaid } from '../owner/relay-said.ts';
 import { redactor } from '../secrets/manager.ts';
-import { companyRef, envelopeBody, envelopeId, lowerShare, shareAtLeast, type Share, type Urgency } from './envelope.ts';
+import { companyRef, envelopeBody, envelopeId, opaqueLink, shareAtLeast, type Share, type Urgency } from './envelope.ts';
 import { mintOffers, offerExpiry } from './offers.ts';
-import { enqueue } from './outbox.ts';
-import { covers, pairedRelayIds, relayRow, type RelayRow } from './relays.ts';
+import { enqueue, type Opens } from './outbox.ts';
+import { covers, pairedRelayIds, relayRow, shareFor, type RelayRow } from './relays.ts';
 
 interface OwnersLink {
   id: string;
@@ -81,7 +81,7 @@ export class RelayChannel implements OwnerChannel {
         throw new PalugadaError('relay.not_paired', 'the relay no longer carries this company, or the owner\'s phone is no longer linked', {});
       }
       const { relay, link } = state;
-      const share = lowerShare(relay.share, link.share);
+      const share = shareFor(relay, item.companyId, link.share);
       const urgent = isPushWorthy(item);
       const urgency: Urgency = urgent ? 'interrupt' : item.delivery === 'actionable' ? 'normal' : 'quiet';
       const deployment = await deploymentOf(tx);
@@ -114,18 +114,20 @@ export class RelayChannel implements OwnerChannel {
         }
         if (item.expiresAt) data.expiresAt = item.expiresAt.toISOString();
       }
+      const opened = opaqueLink(item.url);
       const body = envelopeBody({
         v: 1, id, type: 'inbox_item', at: now.toISOString(), deployment, relay: relay.id,
         to: { recipient: link.recipient_id },
         company: await companyOf(tx, relay, item.companyId, share),
         share, urgency, lang: language,
         text: itemSaid(language, share, { kind: item.kind, title, urgent }),
-        link: item.url,
+        link: opened.link,
         data,
         offers,
       });
       await enqueue(tx, {
         id, relayId: relay.id, linkId: link.id, companyId: item.companyId, type: 'inbox_item', subjects: [`item:${item.id}`], body,
+        handle: opened.handle, opens: { itemId: item.id },
       }, now);
       return { ref: id };
     });
@@ -154,7 +156,7 @@ export class RelayChannel implements OwnerChannel {
         [this.relayId, `item:${closed.id}`]);
       if (!state?.link || ref === null || unsent.length > 0) return 'gone';
       const { relay, link } = state;
-      const share = lowerShare(relay.share, link.share);
+      const share = shareFor(relay, closed.companyId, link.share);
       const deployment = await deploymentOf(tx);
       const id = envelopeId({ deployment, relay: relay.id, link: link.id, type: 'inbox_closed', subject: closed.id });
       const language = closed.language ?? 'en';
@@ -185,7 +187,7 @@ export class RelayChannel implements OwnerChannel {
       text: share === 'signal' ? doneSaid(language) : share === 'summary' ? notice.text.split('\n')[0]! : notice.text,
       link: notice.url,
       data: {},
-    }), notice.language);
+    }), notice.language, { taskId: notice.taskId });
     return id ? { ref: id } : {};
   }
 
@@ -196,13 +198,14 @@ export class RelayChannel implements OwnerChannel {
     subject: string,
     said: (share: Share, language: string | null, company: string) => { text: string; data: Record<string, unknown>; link?: string | null },
     given?: string,
+    opens: Opens = {},
   ): Promise<string | null> {
     const now = new Date();
     return withControlPlane(async (tx) => {
       const state = await prepared(tx, this.relayId, true);
       if (!state?.link || !covers(state.relay, companyId)) return null;
       const { relay, link } = state;
-      const share = lowerShare(relay.share, link.share);
+      const share = shareFor(relay, companyId, link.share);
       const deployment = await deploymentOf(tx);
       const { rows: [names] } = await tx.query<{ company: string; language: string | null }>(
         'SELECT (SELECT name FROM companies WHERE id = $1) AS company, (SELECT console_language FROM platform_control) AS language',
@@ -210,12 +213,13 @@ export class RelayChannel implements OwnerChannel {
       const language = given ?? names!.language ?? 'en';
       const told = said(share, language, names!.company);
       const id = envelopeId({ deployment, relay: relay.id, link: link.id, type, subject });
+      const opened = opaqueLink(told.link);
       await enqueue(tx, {
-        id, relayId: relay.id, linkId: link.id, companyId, type, subjects: [subject],
+        id, relayId: relay.id, linkId: link.id, companyId, type, subjects: [subject], handle: opened.handle, opens,
         body: envelopeBody({
           v: 1, id, type, at: now.toISOString(), deployment, relay: relay.id,
           to: { recipient: link.recipient_id }, company: await companyOf(tx, relay, companyId, share),
-          share, urgency: 'quiet', lang: language, text: told.text, link: told.link ?? null, data: told.data,
+          share, urgency: 'quiet', lang: language, text: told.text, link: opened.link, data: told.data,
         }),
       }, now);
       return id;

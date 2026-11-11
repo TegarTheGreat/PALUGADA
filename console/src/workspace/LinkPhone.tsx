@@ -21,7 +21,11 @@ import { t } from '../i18n.ts';
 import { ActionButton } from '../components/ActionForm.tsx';
 
 interface Links {
-  links: Array<{ id: string; relayId: string; relay: string; label: string | null; status: 'offered' | 'active'; device: boolean; claimedAt: string | null }>;
+  links: Array<{
+    id: string; relayId: string; relay: string; label: string | null; status: 'offered' | 'active'; device: boolean;
+    /** The device key's fingerprint, to compare with what the phone shows (STATUS section 2.216). */
+    deviceFingerprint: string | null; claimedAt: string | null;
+  }>;
   relays: Array<{ id: string; name: string }>;
 }
 
@@ -80,6 +84,9 @@ export function LinkPhone({ relayId, relayName }: { relayId: string; relayName: 
               ? <Badge size="sm" color="teal" variant="light">{t('Signed by the phone')}</Badge>
               : <Badge size="sm" color="orange" variant="light">{t('Told only: no key of its own')}</Badge>}
             {one.claimedAt && <Text size="xs" c="dimmed">{relative(one.claimedAt)}</Text>}
+            {one.deviceFingerprint && (
+              <Text size="xs" c="dimmed" ff="monospace">{t('Its key: {fingerprint}', { fingerprint: one.deviceFingerprint.replace(/(.{4})(?!$)/g, '$1 ') })}</Text>
+            )}
           </Group>
           <ActionButton size="xs" color="red" variant="subtle" label={t('Unlink')}
             run={() => api('POST', `/api/relays/links/${one.id}/end`, {})} done={view.reload} />

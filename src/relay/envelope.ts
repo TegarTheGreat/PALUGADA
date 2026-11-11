@@ -9,9 +9,13 @@
  * phone is owed, at that person's share level, and never a room list, a
  * history, a membership or anyone else's items. A person is never named on
  * the wire: the relay sees an HMAC of who they are under a salt of its own,
- * and a company the same way, so two relays cannot join what each knows.
+ * and a company the same way, and a notice's link names only a handle made
+ * for that notice (`opaqueLink`), so no company, room, thread, item or task
+ * id reaches a relay and two relays cannot join what each knows by a person,
+ * a company or a room. They can tell they serve the same deployment: every
+ * envelope names it.
  */
-import { createHash, createHmac, type KeyObject } from 'node:crypto';
+import { createHash, createHmac, randomBytes, type KeyObject } from 'node:crypto';
 import { meetingSoonSaid, somethingNewSaid } from '../owner/people-said.ts';
 import { closedSaid, digestSaid, doneSaid, itemSaid } from '../owner/relay-said.ts';
 import { jcs } from './canonical.ts';
@@ -93,6 +97,24 @@ export function recipientId(salt: Buffer, principal: string): string {
 /** A company as a relay may know it: `co_` and 16 characters. */
 export function companyRef(salt: Buffer, companyId: string): string {
   return `co_${pseudonym(salt, companyId, 16)}`;
+}
+
+/**
+ * A notice's link as a relay is sent it (STATUS section 2.216): the
+ * deployment's own address with nothing in its query but a handle made for
+ * this one notice, `?notice=<handle>`. The console resolves the handle once
+ * the person the notice was for has signed in, and for nobody else; what it
+ * opens -- a company, a room and a thread, an item, a task -- is kept beside
+ * the envelope in the outbox, never in it. So no company, room, thread, item
+ * or task id reaches a relay: it cannot tell from a link who shares a room,
+ * and two relays cannot join what each knows by one. No public address, no
+ * link.
+ */
+export function opaqueLink(link: string | null | undefined): { link: string | null; handle: string | null } {
+  if (!link) return { link: null, handle: null };
+  const url = new URL(link);
+  const handle = randomBytes(24).toString('base64url');
+  return { link: `${url.origin}${url.pathname}?notice=${handle}`, handle };
 }
 
 /** The headers an envelope goes with, signed now with every key the deployment signs with. */

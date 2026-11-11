@@ -24,7 +24,7 @@ import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { deviceSignature, fakeRelay, sha256Hex, type FakeRelay } from '../helpers/fake-relay.ts';
-import { handToRelay, linkThrough, pairThrough, sendOutbox, type Linked } from '../helpers/relay.ts';
+import { handToRelay, linkThrough, opens, pairThrough, sendOutbox, type Linked } from '../helpers/relay.ts';
 import { noticesOf, tell, toldTo } from '../helpers/notices.ts';
 import { companyRoomOf, ok, personIn, refusedWith, said, seated, type Console, type PersonIn, type Seat } from '../helpers/rooms.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -205,7 +205,7 @@ test("a question for a seat reaches that seat's relay, and the owner's only once
     await sendOutbox(w.api.master);
     const toOwner = toldTo(w.relay, ownerPhone);
     assert.deepEqual(toOwner.map((one) => one.type), ['inbox_item']);
-    assert.match(String(toOwner[0].link), new RegExp(asked.inboxItemId));
+    assert.equal((await opens(w.api, w.ownerToken, toOwner[0].link)).body.itemId, asked.inboxItemId);
   } finally {
     await w.close();
   }
@@ -222,7 +222,7 @@ test('a reply through the relay lands in the room and thread the notice named, a
     await tell(w.fixture.companyId, w.api.master);
     const [notice] = toldTo(w.relay, sari.phone!);
     assert.deepEqual(Object.keys(offers(notice)).sort(), ['mute', 'read', 'reply']);
-    assert.match(String(notice.link), new RegExp(`thread=${root}`));
+    assert.deepEqual((await opens(w.api, sari.seat.token, notice.link)).body.threadOf, root, 'its link opens the thread, for her');
 
     const replied = await act(w, sari.phone!, 'reply', offers(notice).reply!, { body: 'On my way. Approve the payment.', clientId: 'phone-1' });
     assert.equal(replied.status, 200, JSON.stringify(replied.body));

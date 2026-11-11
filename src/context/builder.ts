@@ -60,7 +60,7 @@ export interface ContextSection {
   body: string;
   /** A lesson learned from content written outside the company (0071). */
   outside?: true;
-  /** A lesson learned from work members of staff asked for or spoke to: whose words a run told it carries (0161). */
+  /** A lesson learned from work members of staff asked for or spoke to: whose words a run told it carries (STATUS 2.217). */
   staff?: StaffWord[];
 }
 

@@ -349,7 +349,7 @@ export async function keptPaths(tx: TenantClient, messageIds: readonly string[])
   return rows.map((row) => row.path);
 }
 
-/** What a company's room files may take until the owner says otherwise: ten gigabytes (0161). */
+/** What a company's room files may take until the owner says otherwise: ten gigabytes (STATUS 2.217). */
 export const ROOM_FILES_MEGABYTES = { first: 10_240, least: 1, most: 1_048_576 } as const;
 
 const MEGABYTE = 1024 * 1024;
@@ -359,7 +359,7 @@ const MEGABYTE = 1024 * 1024;
  * limit the owner set (`room.files_full`, F19.4; STATUS 2.217), in the post's
  * transaction after the room clock, so two posts at once cannot both pass
  * its last bytes. Counted over every room of the company, the ones this
- * person cannot see too, by the database (`app.room_files_kept`, 0161),
+ * person cannot see too, by the database (`app.room_files_kept`, STATUS 2.217),
  * which answers a number and nothing of any file.
  */
 export async function withinFilesLimit(tx: TenantClient, companyId: string, adding: number): Promise<void> {

@@ -222,7 +222,7 @@ export async function postMessage(
     // The clock first, so a retry racing its original reads after it.
     await takeClock(tx);
     // A retry is the same words to the same place: the key is the room's
-    // (0161), and the same key in another thread of this room is other words,
+    // (STATUS 2.217), and the same key in another thread of this room is other words,
     // refused by name rather than answered with the message it named first.
     const { rows: again } = await tx.query<MessageRow>(
       `SELECT ${MESSAGE_COLUMNS} FROM room_messages m WHERE m.room_id = $1 AND m.author = $2 AND m.client_id = $3`,
@@ -244,7 +244,7 @@ export async function postMessage(
     }
     slowDown(viewer);
     const { kept, dropped } = await keptMentions(tx, room, directory, body, asked);
-    // The company's room files are held to the owner's limit (0161), read
+    // The company's room files are held to the owner's limit (STATUS 2.217), read
     // after the clock, so two posts at once cannot both pass its last bytes.
     if (staged.length > 0) await withinFilesLimit(tx, viewer.companyId, staged.reduce((sum, one) => sum + one.file.bytes.length, 0));
     const id = randomUUID();
@@ -283,7 +283,7 @@ async function shown(tx: TenantClient, viewer: Viewer, directory: Directory, mes
  * post mentions them (STATUS 2.218): only those asked for whose name is in
  * the words and who can see the room, the others said back with why. Someone
  * no longer named is no longer mentioned, and someone newly named is told
- * (0161). `mentions` left out keeps whom the message named, as long as their
+ * by the database as the edit commits. `mentions` left out keeps whom the message named, as long as their
  * names are still in the words.
  */
 export async function editMessage(viewer: Viewer, roomId: string, messageId: string, input: Record<string, unknown>): Promise<Posted> {

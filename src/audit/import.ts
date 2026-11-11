@@ -367,7 +367,7 @@ const SECTIONS: ImportSection[] = [
     name: 'room_message_revisions', table: 'room_message_revisions', references: ['message_id'], required: ['message_id'], room: true,
   },
   {
-    // An archive taken before a reaction was held to one emoji (0161) may
+    // An archive taken before a reaction was held to one emoji (STATUS 2.217) may
     // carry words as one: left out, rather than refused with the restore.
     name: 'room_reactions', table: 'room_reactions', references: ['message_id'], required: ['message_id'], room: true,
     keep: (row) => keptReaction(row.emoji, row.principal),
@@ -623,7 +623,7 @@ export async function importCompany(
           // neither, and the owner does not attend until they say so.
           source!.meeting_owner_joins === true,
           wholeIn(source!.meeting_join_minutes, 5, 120) ?? 20,
-          // How much its room files may take (0161); an archive from before
+          // How much its room files may take (STATUS 2.217); an archive from before
           // it has none, and gets the ten gigabytes every company starts with.
           wholeIn(source!.room_files_megabytes, ROOM_FILES_MEGABYTES.least, ROOM_FILES_MEGABYTES.most) ?? ROOM_FILES_MEGABYTES.first,
         ],
@@ -981,7 +981,7 @@ async function importSection(
   if (section.positions && kept.length > 0) {
     // Every message's place from the new company's clock, in the archive's
     // order, taken in one step rather than one update of the clock a message
-    // (0161): the room triggers keep a position taken so.
+    // (STATUS 2.217): the room triggers keep a position taken so.
     const { rows: taken } = await tx.query<{ first: string }>('SELECT app.take_room_positions($1, $2) AS first', [companyId, kept.length]);
     const first = Number(taken[0]!.first);
     kept.forEach((values, index) => { values.position = first + index; });

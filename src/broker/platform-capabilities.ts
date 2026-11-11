@@ -63,7 +63,7 @@ export interface MemorySearchInput {
 export interface MemorySearchResult {
   facts: Array<{
     body: string; confidence: number; source: string; unverified: boolean; outside?: boolean;
-    /** The members of staff whose work taught it: their words, not the company's knowledge (0161). */
+    /** The members of staff whose work taught it: their words, not the company's knowledge (STATUS 2.217). */
     staff?: string[];
     /** The day it was recorded: a price or a status may have changed since, and the record wins. */
     recordedOn: string;
@@ -189,7 +189,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
             // The same warning the context pack carries. A fact fetched through a
             // tool must not arrive more certain than the same fact would have
             // been in the pack -- nor one learned from outside content arrive
-            // as anything but data (0071), nor a colleague's as the company's (0161).
+            // as anything but data (0071), nor a colleague's as the company's (STATUS 2.217).
             unverified: memory.confidence < 0.6 || memory.outside || staff.length > 0,
             recordedOn: memory.validFrom.toISOString().slice(0, 10),
             ageDays: Math.max(0, Math.floor((Date.now() - memory.validFrom.getTime()) / 86_400_000)),

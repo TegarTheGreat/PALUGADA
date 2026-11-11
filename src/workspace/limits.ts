@@ -107,7 +107,7 @@ export function holdToMinute(who: { companyId: string; person: { principal: stri
  * Anything else -- a word, a tag, two emoji, a direction override, nothing
  * visible -- is refused (`reaction.not_emoji`): a reaction is never words,
  * and words pinned under a colleague's message as one read as a verdict on
- * it. The database holds the same shape (0161).
+ * it. The database holds the same shape (STATUS 2.217).
  */
 export function reactionOf(value: unknown): string {
   const emoji = typeof value === 'string' ? value : '';
@@ -123,7 +123,7 @@ const RGI_EMOJI = new RegExp('^\\p{RGI_Emoji}$', 'v');
 
 /**
  * Whether a reaction already written -- in an archive, or by an import --
- * is one the database keeps (0161): one emoji, in either form, or for an
+ * is one the database keeps (STATUS 2.217): one emoji, in either form, or for an
  * old Slack author the name of a custom emoji, which no Unicode emoji draws.
  * A restore leaves out the rest rather than fail on them.
  */

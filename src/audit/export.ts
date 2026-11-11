@@ -108,7 +108,7 @@ const SECTIONS: Section[] = [
     // import maps once the measures are restored, the month its fiscal
     // year starts in (0144), whether the owner attends its weekly meeting
     // and for how long a question there waits (0156), and how much its room
-    // files may take (0161).
+    // files may take (STATUS 2.217).
     sql: `SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian,
                  meeting_weekday, meeting_hour, meeting_enabled, headline_metric_id, fiscal_year_start_month,
                  meeting_owner_joins, meeting_join_minutes, room_files_megabytes

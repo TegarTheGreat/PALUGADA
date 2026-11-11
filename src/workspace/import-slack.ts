@@ -742,7 +742,7 @@ const EMOJI: Readonly<Record<string, string>> = {
 
 /**
  * A reaction's emoji: the one Slack's name draws, or the name itself between
- * colons, a custom emoji's, which the rooms keep for an old author (0161);
+ * colons, a custom emoji's, which the rooms keep for an old author (STATUS 2.217);
  * null for a name that is neither, which is not kept.
  */
 function emojiOf(name: string): string | null {

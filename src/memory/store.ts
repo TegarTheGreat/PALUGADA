@@ -55,7 +55,7 @@ export interface MemoryItem {
   outside: boolean;
   /**
    * The members of staff whose words were in the work that taught it (F19.9,
-   * 0161): never a known fact, and told to a run as a colleague's words.
+   * STATUS 2.217): never a known fact, and told to a run as a colleague's words.
    */
   staff: StaffWord[];
   /** The finished work that taught it, when one did. */
@@ -85,7 +85,7 @@ export interface RememberInput {
   sourceTaskId?: string | undefined;
 }
 
-/** Whose words a memory names, each once, at most twenty, as the column holds them (0161). */
+/** Whose words a memory names, each once, at most twenty, as the column holds them (STATUS 2.217). */
 function staffOf(staff: readonly StaffWord[] | undefined): StaffWord[] {
   const seen = new Set<string>();
   const named: StaffWord[] = [];

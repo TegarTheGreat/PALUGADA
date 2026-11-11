@@ -782,3 +782,44 @@ test("a person's notices are kept thirty days, and the rooms' feed two weeks", a
     await w.close();
   }
 });
+
+test("work kept from the seat that asked for it is told done without what came of it, even at content", async () => {
+  // Work that holds a question put to another seat is shown to the seat who
+  // asked for it without its output (STATUS 2.204); its phone, through a
+  // relay that is a third party, was sent the output's summary all the same
+  // (STATUS 2.217).
+  const w = await workspace('notify-kept-output', { share: 'content' });
+  try {
+    const mira = await person(w, 'Mira', 'member', { share: 'content' });
+    const budi = await person(w, 'Budi', 'member', { share: 'content' });
+    const { companyId } = w.fixture;
+    const work = (goal: string) => ({
+      companyId, projectId: w.fixture.projectId, divisionId: w.fixture.divisionId, roleId: w.fixture.roleId,
+      goalId: w.fixture.goalId, input: { goal }, reserveTokens: 100, createdBy: 'staff' as const, requestedBySeat: mira.seat.id,
+    });
+    const kept = await withTenant(companyId, async (tx) => (await createRootTaskWithin(tx, work('Find out what Budi pays the supplier'))).id);
+    await transition(companyId, kept, 'running');
+    const asked = await inbox.askOwner({
+      companyId, taskId: kept, question: 'What is your salary?', addressee: { seatId: budi.seat.id, name: 'Budi', escalateAfterHours: 24 },
+    });
+    await inbox.answerEscalation(companyId, asked.inboxItemId, 'Rp 9 juta a month', { seat: { id: budi.seat.id, name: 'Budi', kind: 'member' } });
+    await transition(companyId, kept, 'completed', { output: { summary: 'Budi earns Rp 9 juta a month, he told me.' } });
+    // And work of hers that holds nobody else's words, whose result she reads.
+    const own = await withTenant(companyId, async (tx) => (await createRootTaskWithin(tx, work('Count the stock'))).id);
+    await transition(companyId, own, 'running');
+    await transition(companyId, own, 'completed', { output: { summary: '41 bags' } });
+
+    assert.equal(ok(await mira.in.get(`/tasks/${kept}`)).task.output, null, 'the console keeps the result from her');
+    await tell(companyId, w.api.master);
+    const told = toldTo(w.relay, mira.phone!).filter((one) => one.type === 'work_done');
+    assert.equal(told.length, 2);
+    const byTitle = new Map(told.map((one) => [String(one.data.title), one]));
+    const keptNotice = byTitle.get('Find out what Budi pays the supplier')!;
+    assert.match(keptNotice.text, /The work you asked for is done: Find out what Budi pays the supplier\./);
+    assert.equal(keptNotice.data.summary, undefined, 'her phone is told it is done, and not what Budi said');
+    assert.doesNotMatch(JSON.stringify(keptNotice), /9 juta/);
+    assert.equal(byTitle.get('Count the stock')!.data.summary, '41 bags', 'her own work tells her what came of it');
+  } finally {
+    await w.close();
+  }
+});

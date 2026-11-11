@@ -34,7 +34,7 @@
  * refuse (STATUS section 2.203).
  */
 import { withControlPlane, withDelivery, withPeople, type Person, type TenantClient } from '../db/tenant.ts';
-import { TEAM_SQL } from '../inbox/inbox.ts';
+import { TEAM_SQL, tasksKeptFromSeat } from '../inbox/inbox.ts';
 import { relayPeopleNotice, type PeopleNotice, type Said } from '../relay/people.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { redactor } from '../secrets/manager.ts';
@@ -770,11 +770,16 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
   const title = redactor.redact((task.goal ?? '').slice(0, 200));
   const sentence = workSaid(language, { done: task.status === 'completed', title, why: haltSaid(language, task.halt_reason) });
   const summary: Said = { text: sentence, data: { title } };
+  // What came of the work only where the seat may read it: work that holds a
+  // question put to another seat, or another seat's words to it, is shown to
+  // this seat without its output (STATUS 2.204), and a relay is a third
+  // party, so its phone is told the work ended and no more (STATUS 2.217).
+  const kept = (await tasksKeptFromSeat(tx, [id], { id: as.principal.slice('seat:'.length) })).has(id);
   return {
     state: 'ok', type: 'work_done', subjects: [row.subject],
     said: {
       signal, summary,
-      content: task.summary ? { text: sentence, data: { title, summary: redactor.redact(task.summary.slice(0, 500)) } } : summary,
+      content: task.summary && !kept ? { text: sentence, data: { title, summary: redactor.redact(task.summary.slice(0, 500)) } } : summary,
     },
     target: { companyId: context.directory.companyId, taskId: id },
   };

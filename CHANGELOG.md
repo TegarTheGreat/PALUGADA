@@ -1119,6 +1119,7 @@ The first version. What it holds, in the order an owner meets it.
   it under Your profile, Notify me in this browser. Signing out or ending a
   seat ends its views on every replica, and within thirty seconds at most;
   a member of staff's console shows what they may do as soon as you change
-  it. Serve the console over HTTP/2 if you keep many tabs open, and set
-  `PALUGADA_LISTEN_DATABASE_URL` if your database URL goes through
-  PgBouncer (STATUS 2.210).
+  it. A sixth tab of one company reads every few seconds instead. Serve
+  the console over HTTP/2 if you keep many tabs open, of one company or
+  several, and set `PALUGADA_LISTEN_DATABASE_URL` if your database URL goes
+  through PgBouncer (STATUS 2.210).

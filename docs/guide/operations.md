@@ -157,10 +157,15 @@ one stream open for the company in view: the room stream, which says when
 a room, a thread, a badge or the company's work changed, and never what was
 said. A browser speaking HTTP/1.1 opens at most six connections to one site,
 so with several tabs of the console open, each holding its stream, few are
-left for the pages; a sixth tab of one company is refused its stream and
-falls back to reading every few seconds. Serve the console over HTTP/2 at
-the proxy, where every tab shares one connection and the limit does not
-apply: the Caddy of the `https` profile does already; in nginx it is
+left for the pages. A person holds five streams of one company at most: a
+sixth tab of that company is refused its stream, opens no other, reads its
+pages every few seconds instead, and takes the stream once another tab
+closes, which leaves the browser one connection for every tab's requests.
+The limit is per company, so six tabs spread over two companies hold six
+streams and leave a browser on HTTP/1.1 nothing to load pages with, until a
+tab closes. Serve the console over HTTP/2 at the proxy, where every tab
+shares one connection and the limit does not apply, whatever the companies
+the tabs show: the Caddy of the `https` profile does already; in nginx it is
 `http2 on;` in the `server` block that listens on 443. The streams are
 `text/event-stream`: the proxy must not buffer them (the console sends
 `X-Accel-Buffering: no`, which nginx honours) and must keep an idle one open

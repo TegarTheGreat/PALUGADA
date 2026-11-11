@@ -402,9 +402,12 @@ const CARD_KINDS = ['work', 'question', 'approval', 'meeting'];
  * was up). Each message goes by its own age, so a busy thread keeps none of
  * its old words, and nothing here waits for a thread to fall quiet.
  *
- * Whatever else must forget a message when retention takes it -- a relay's
- * copy of its excerpt (section 2.213) -- is told here, from `deleted` and
- * `tombstoned`, in the same transaction.
+ * A relay's copy of a message's excerpt is retracted by the worker's notify
+ * stage (`retractRemoved`, STATUS section 2.213), which finds each notice
+ * whose message is gone or keeps no words, a tombstone left here included.
+ * Nothing is called from this transaction: a retraction takes each relay's
+ * row first, and taken here it would come after the clock and the
+ * messages' rows, the reverse of the order a notice going out takes them.
  */
 async function purgeMessages(tx: TenantClient, companyId: string, cutoff: Date | null): Promise<PurgedMessages> {
   // The company's clock before anything is chosen, as every room write takes

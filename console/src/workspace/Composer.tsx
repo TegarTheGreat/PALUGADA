@@ -23,7 +23,6 @@ import { api, explain } from '../api.ts';
 import { count } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import { EmojiPicker } from './EmojiPicker.tsx';
-import { CallMeeting } from './MeetingCard.tsx';
 import { mentionAt, mentionChoices, MentionPicker, optionId, type MentionChoice } from './MentionPicker.tsx';
 import { mayAsk, useScope } from './scope.ts';
 
@@ -46,13 +45,18 @@ export interface Sent {
   tell: boolean;
 }
 
-export function Composer({ roomId, threadOf = null, placeholder, send, ask, editLast, tellable = false, disabled = false }: {
+export function Composer({ roomId, threadOf = null, placeholder, send, ask, meet, editLast, tellable = false, disabled = false }: {
   roomId: string;
   threadOf?: string | null;
   placeholder: string;
   send: (sent: Sent) => void;
   /** Ask the team: the words are posted, then the drawer that gives them as work opens; with none, it opens empty. */
   ask?: (body: string) => void;
+  /**
+   * Call a meeting about these words (STATUS 2.211): they are posted as the person's own, then the dialog that calls
+   * the meeting opens on the message, so cancelling it leaves them in the room.
+   */
+  meet?: (body: string) => void;
   /** ↑ in an empty composer: edit your last message. */
   editLast?: () => void;
   /** A thread of work the reader may tell (F19.6). */
@@ -69,7 +73,6 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
   const [emoji, setEmoji] = useState(false);
   const [mode, setMode] = useState<'message' | 'tell'>('message');
   const [alsoInRoom, setAlsoInRoom] = useState(false);
-  const [calling, setCalling] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   // Where the caret goes once a chosen name or emoji is written in. Placed as the words are drawn, before the
@@ -244,13 +247,13 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
         } />
         {/* Calling a meeting of the company's agents about these words (section 2.211): the owner's and an approver's, at
             the top of a room, pressed and never sent by a key. Setting a people's meeting (section 2.215) goes here too. */}
-        {threadOf === null && (scope.kind === 'owner' || scope.kind === 'approver') && (
+        {meet && threadOf === null && (scope.kind === 'owner' || scope.kind === 'approver') && (
           <Tooltip label={t('Call a meeting about this')}>
             <ActionIcon size="lg" variant="subtle" aria-label={t('Call a meeting about this')} disabled={disabled || !value.trim()} onClick={() => {
               const body = value.trim();
               if (!body) return;
               setValue('');
-              setCalling(body);
+              meet(body);
             }}>
               <IconUsersGroup size={18} />
             </ActionIcon>
@@ -280,7 +283,6 @@ export function Composer({ roomId, threadOf = null, placeholder, send, ask, edit
           <Button size="xs" variant="light" disabled={!value.trim()} onClick={submit}>{t('Tell the work')}</Button>
         </Group>
       )}
-      <CallMeeting calling={calling === null ? null : { words: calling, roomId }} close={() => setCalling(null)} />
     </Box>
   );
 }

@@ -55,7 +55,7 @@ import { isSpendPaused } from '../governance/spend-guard.ts';
 import { isWithin, localTimeIn, wallClockAt, type Window } from '../scheduler/windows.ts';
 import { notDoneTwiceIssue, offTrackIssue, ownerReadingWithin, roleCalledWithin } from '../owner/platform-cards.ts';
 import { buildMeetingFacts, type MeetingFacts } from '../reporting/meeting.ts';
-import { createRootTaskWithin, staffWordsIn, type StaffWord } from './tasks.ts';
+import { carryWhatItIsMadeFrom, createRootTaskWithin, staffWordsIn, type StaffWord } from './tasks.ts';
 import { fileIssue, staffOfTickets } from './tickets.ts';
 
 /** The prefix of every meeting's key: closing a goal cancels a meeting not yet started under it (goals.ts). */
@@ -374,38 +374,17 @@ export async function startMeetingWithin(tx: TenantClient, companyId: string, st
     // And whose staff words the facts' tickets and reviews carry (F19.9).
     carriesStaff: staff.length > 0 ? { from: 'meeting', staff } : undefined,
   });
-  // What the meeting was called about, written beside the facts' marks in
-  // the same transaction, so no run of it starts clean in between.
-  await carryTheMessage(tx, companyId, task, { outside: start.carriesOutside, staff: start.carriesStaff });
+  // What the meeting was called about (F8.9, F19.9): outside words from a
+  // relay or an import, and the words of a member of staff who wrote it,
+  // quoted. Written beside the facts' marks in the same transaction, so no
+  // run of it starts clean in between.
+  await carryWhatItIsMadeFrom(tx, companyId, task, start.carriesOutside, start.carriesStaff);
   if (joins) {
     await appendEvent(tx, {
       companyId, projectId: task.projectId, taskId: task.id, type: 'meeting.owner_joined', actor: 'owner', payload: { minutes: joins.minutes },
     });
   }
   return task.id;
-}
-
-/**
- * The marks of the message a meeting was called about (F8.9, F19.9): outside
- * words from a relay or an import, and the words of a member of staff who
- * wrote it, quoted by the platform since the seat said nothing to the
- * meeting itself.
- */
-async function carryTheMessage(
-  tx: TenantClient, companyId: string, task: { id: string; projectId: string },
-  message: { outside: MeetingStart['carriesOutside']; staff: MeetingStart['carriesStaff'] },
-): Promise<void> {
-  if (message.outside) {
-    await appendEvent(tx, {
-      companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine', payload: message.outside,
-    });
-  }
-  for (const word of message.staff?.staff ?? []) {
-    await appendEvent(tx, {
-      companyId, projectId: task.projectId, taskId: task.id, type: 'content.staff_said', actor: 'system',
-      payload: { seatId: word.seatId, name: word.name, how: 'quoted', from: message.staff!.from },
-    });
-  }
 }
 
 /** Today in a company: its zone, the ISO week and the day on its clock. */

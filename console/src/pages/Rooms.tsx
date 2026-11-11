@@ -1,7 +1,7 @@
 /**
  * Rooms: where the owner and the staff talk, and ask the company for work
- * where they talk (F19.1, F19.3 to F19.8, F19.10, F19.16, F19.21; STATUS
- * 2.207).
+ * or call a meeting of its agents where they talk (F19.1, F19.3 to F19.8,
+ * F19.10, F19.16, F19.18, F19.21; STATUS 2.207, 2.211).
  *
  * Three panes on a wide screen -- the rail, the room, and a thread beside
  * it -- after the inbox's list and detail. Between a tablet's width and a
@@ -32,6 +32,7 @@ import { AskWork } from '../workspace/AskWork.tsx';
 import { Browse } from '../workspace/Browse.tsx';
 import { Composer, type Sent } from '../workspace/Composer.tsx';
 import { disclosureOf } from '../workspace/disclosure.ts';
+import { CallMeeting } from '../workspace/MeetingCard.tsx';
 import { NewMessage } from '../workspace/NewMessage.tsx';
 import { NewRoom } from '../workspace/NewRoom.tsx';
 import { RoomInfo } from '../workspace/RoomInfo.tsx';
@@ -70,6 +71,9 @@ export function Rooms({ ctx, route }: PageProps) {
   const [tick, setTick] = useState(0);
   // What Ask the team is open for: a message, or nothing yet; null while it is closed.
   const [asking, setAsking] = useState<{ message: MessageView | null } | null>(null);
+  // What a meeting is being called about; null while the dialog is closed. Held here, above the room that is read
+  // again and the composer that is drawn again with it, so a refusal and the topic typed stay while the room moves.
+  const [calling, setCalling] = useState<{ message: MessageView } | null>(null);
   const [making, setMaking] = useState(false);
   const [writing, setWriting] = useState<string[] | null>(null);
 
@@ -124,6 +128,7 @@ export function Rooms({ ctx, route }: PageProps) {
     phone,
     openThread: (messageId) => { if (roomId) select(`${roomId}~${messageId}`); },
     askWork: (message) => setAsking({ message }),
+    callMeeting: (message) => setCalling({ message }),
     changed,
     tick,
   } : null), [ctx, companyId, me, owner, shownRoom, people.data, phone, roomId, select, changed, tick]);
@@ -205,6 +210,7 @@ export function Rooms({ ctx, route }: PageProps) {
         )}
       </Box>
       <AskWork asking={asking} close={() => setAsking(null)} />
+      <CallMeeting calling={calling} close={() => setCalling(null)} />
       <NewRoom opened={making} close={() => setMaking(false)} made={(id) => select(id)} />
       <NewMessage opened={writing !== null} chosen={writing ?? []} close={() => setWriting(null)} made={(id) => select(id)} />
     </ScopeContext.Provider>
@@ -239,11 +245,13 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
   const [lastMine, setLastMine] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
 
-  // Once a message is kept: asked about, when "Ask the team" posted it; read again otherwise.
+  // Once a message is kept: asked about, when "Ask the team" posted it; a meeting called about it, when "Call a
+  // meeting about this" did; read again either way.
   const kept = useCallback((message: MessageView, pending: Pending) => {
     if (pending.then === 'ask') scope.askWork(message);
+    if (pending.then === 'meeting') scope.callMeeting(message);
     scope.changed();
-  }, [scope.askWork, scope.changed]);
+  }, [scope.askWork, scope.callMeeting, scope.changed]);
   const posting = usePosting(scope.companyId, roomId, kept);
   const failed = (failure: unknown) => notifications.show({ color: 'red', message: explain(failure) });
   const send = (sent: Sent) => {
@@ -263,6 +271,11 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
       return;
     }
     void posting.start({ body, mentions: [], mentionsRoom: false, alsoInRoom: false, threadOf: null, then: 'ask' }).catch(failed);
+  };
+  // Words to call a meeting about are posted the same way, and the dialog opens on the message once it is kept: the
+  // words are the person's, and stay in the room whether or not the meeting is called.
+  const meet = (body: string) => {
+    void posting.start({ body, mentions: [], mentionsRoom: false, alsoInRoom: false, threadOf: null, then: 'meeting' }).catch(failed);
   };
   const shown = useCallback((messages: MessageView[]) => {
     const mine = [...messages].reverse().find((one) => one.author.principal === scope.me && one.may.edit);
@@ -323,6 +336,7 @@ function RoomPane({ roomId, threadOpen, back, addPeople }: {
           placeholder={room.kind === 'direct' ? t('Write to {people}', { people: title }) : t('Write in {room}', { room: title })}
           send={send}
           ask={ask}
+          meet={meet}
           {...(lastMine ? { editLast: () => setEditing(lastMine) } : {})}
         />
       )}

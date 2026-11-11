@@ -67,7 +67,7 @@ export function QuestionCard({ card }: { card: CardView }) {
         </Group>
         {!question.hidden && <Prose text={question.text} />}
         {question.endsAt && card.state === 'open' && (
-          <Text size="xs" c="dimmed">{t('The meeting goes on without an answer {time}.', { time: relative(question.endsAt) })}</Text>
+          <Text size="xs" c="dimmed">{t('The meeting goes on without an answer {time}.', { time: relative(question.endsAt, 'long') })}</Text>
         )}
         {card.may.answer && card.state === 'open' && (
           <>

@@ -14,20 +14,22 @@
  *
  * `CallMeeting` calls one about a message: the owner's or an approver's
  * press, never a keystroke, through the message's own door
- * (`…/messages/:id/meeting`). From the composer there is no message yet: the
- * words are posted as the person's own first, once, and the meeting is
- * called about them.
+ * (`…/messages/:id/meeting`). The Rooms page holds it, as it holds Ask the
+ * team, so the room read again behind it takes away neither a refusal nor
+ * the topic typed. From the composer the words are posted as the person's
+ * own first, as Ask the team posts them, and it opens on the message once
+ * kept: cancelling the meeting leaves the words in the room.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Anchor, Avatar, Badge, Button, Group, Modal, Paper, Popover, Stack, Text, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconPlayerStop, IconUsersGroup } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { Prose } from '../components/Prose.tsx';
 import { count, STATUS_COLORS, statusLabel, whyStopped } from '../format.ts';
-import { t } from '../i18n.ts';
+import { t, tp } from '../i18n.ts';
 import { rolePicture } from '../images.ts';
-import { nameOf, newClientId, useScope } from './scope.ts';
+import { nameOf, useScope } from './scope.ts';
 import type { CardView, MessageView } from './types.ts';
 
 /** The longest topic the server takes: it is told to the meeting as an instruction is. */
@@ -118,7 +120,8 @@ export function MeetingCard({ card, message }: { card: CardView; message: Messag
         {meeting.joined && meeting.joinMinutes !== null && (
           <Text size="xs" c="dimmed">
             {scope.kind === 'owner'
-              ? t('You attend: its questions come to you, and each waits {minutes} minutes before the meeting goes on without your answer.', { minutes: count(meeting.joinMinutes) })
+              // Both sentences on one line: the dictionary test reads a line at a time, and finds the plural through the first.
+              ? tp('You attend: its questions come to you, and each waits {count} minute before the meeting goes on without your answer.', 'You attend: its questions come to you, and each waits {count} minutes before the meeting goes on without your answer.', meeting.joinMinutes)
               : t('The owner attends this meeting.')}
           </Text>
         )}
@@ -164,48 +167,34 @@ export function MeetingCard({ card, message }: { card: CardView; message: Messag
 }
 
 export function CallMeeting({ calling, close }: {
-  /**
-   * What the meeting is to be called about: a message already in the room, or
-   * words not posted yet (from the composer); null while it is closed.
-   */
-  calling: { message: MessageView } | { words: string; roomId: string } | null;
+  /** The message the meeting is to be called about, already kept in its room; null while it is closed. */
+  calling: { message: MessageView } | null;
   close: () => void;
 }) {
   const scope = useScope();
   const [topic, setTopic] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Words from the composer are posted once, however often Call is pressed after a refusal.
-  const [posted, setPosted] = useState<MessageView | null>(null);
-  const clientId = useRef('');
+  const about = calling?.message ?? null;
 
+  // Started afresh when it opens on a message, and only then: keyed by the message, never by the object that names
+  // it, so the room drawn again behind it (as a refusal reads it again) keeps the refusal and what was typed.
   useEffect(() => {
-    if (!calling) return;
+    if (!about) return;
     setError(null);
-    setPosted(null);
-    clientId.current = newClientId();
     // The reader's own words are the topic to start from; someone else's are theirs, and are not put in the
     // reader's mouth: the topic is told to the meeting as the caller's own.
-    setTopic('words' in calling ? calling.words : calling.message.author.principal === scope.me ? calling.message.body ?? '' : '');
-  }, [calling]);
+    setTopic(about.author.principal === scope.me ? about.body ?? '' : '');
+  }, [about?.id]);
 
   const quietRoom = scope.room !== null && (scope.room.private || scope.room.kind === 'direct');
   const minutes = scope.ctx.company.rhythm.joinMinutes;
 
   const call = async () => {
-    if (!calling || !topic.trim()) return;
+    if (!about || !topic.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      let about = 'message' in calling ? calling.message : posted;
-      if (!about && 'words' in calling) {
-        const answer: { message: MessageView } = await api('POST', `/api/companies/${scope.companyId}/rooms/${calling.roomId}/messages`, {
-          body: calling.words, clientId: clientId.current, mentions: [],
-        });
-        about = answer.message;
-        setPosted(about);
-      }
-      if (!about) return;
       await api('POST', `/api/companies/${scope.companyId}/rooms/${about.roomId}/messages/${about.id}/meeting`, { topic: topic.trim() });
       notifications.show({ color: 'teal', message: t('The meeting is called. It shows under the message, and its record will be there when it ends.') });
       close();
@@ -220,7 +209,7 @@ export function CallMeeting({ calling, close }: {
   };
 
   return (
-    <Modal opened={calling !== null} onClose={close} title={t('Call a meeting about this')} centered>
+    <Modal opened={about !== null} onClose={close} title={t('Call a meeting about this')} centered>
       <Stack data-call-meeting>
         <Text size="sm" c="dimmed">
           {t("The CEO holds a meeting of the company's agents about it, against the scorecard, the priorities, the to-dos and the issues, and files what follows. It reserves money from the CEO's budget, and a company calls at most three a day.")}
@@ -228,7 +217,9 @@ export function CallMeeting({ calling, close }: {
         <Textarea label={t('What the meeting is about')} autosize minRows={2} maxRows={8} maxLength={TOPIC_MAX} dir="auto"
           value={topic} onChange={(event) => setTopic(event.currentTarget.value)} data-autofocus />
         {scope.kind === 'owner' && (
-          <Text size="sm" c="dimmed">{t('You attend it: its questions come to you, and each waits {minutes} minutes before it goes on without your answer.', { minutes: count(minutes) })}</Text>
+          <Text size="sm" c="dimmed">
+            {tp('You attend it: its questions come to you, and each waits {count} minute before it goes on without your answer.', 'You attend it: its questions come to you, and each waits {count} minutes before it goes on without your answer.', minutes)}
+          </Text>
         )}
         {quietRoom && (
           <Alert variant="light" color="yellow">

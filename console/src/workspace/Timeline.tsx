@@ -37,8 +37,8 @@ export interface Pending {
   alsoInRoom: boolean;
   threadOf: string | null;
   failed: boolean;
-  /** What to do once it is kept: ask the team about it, or tell it to the thread's work. */
-  then: 'ask' | 'tell' | null;
+  /** What to do once it is kept: ask the team about it, call a meeting about it, or tell it to the thread's work. */
+  then: 'ask' | 'meeting' | 'tell' | null;
 }
 
 /** How often an open room is read again before the room stream exists. */

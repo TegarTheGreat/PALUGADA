@@ -156,10 +156,12 @@ async function companiesHeard(tx: TenantClient, relay: RelayRow, companyId: stri
 /**
  * Why a link ended, as its relay is told: another device linked in its
  * place, the person or the owner unlinked it in PALUGADA, the seat ended,
- * the relay ended it itself, or the owner took the seat's company off the
- * relay (STATUS section 2.216).
+ * the relay ended it itself, the owner took the seat's company off the
+ * relay (STATUS section 2.216), or the owner gave the seat a new
+ * authenticator, which keeps the seat and ends its phones with its sessions
+ * (STATUS 2.217): a relay's app must not tell that person their seat ended.
  */
-export type LinkEnding = 'replaced' | 'unlinked' | 'seat_ended' | 'relay' | 'company_dropped';
+export type LinkEnding = 'replaced' | 'unlinked' | 'seat_ended' | 'relay' | 'company_dropped' | 'new_authenticator';
 
 /**
  * Ends links, and voids their offers and drops what they were owed and not
@@ -213,8 +215,10 @@ export async function endLink(linkId: string, by: Linker): Promise<void> {
   });
 }
 
-/** Every link of one person ends, in the caller's transaction: a seat revoked. */
-export async function endLinksOf(tx: TenantClient, principal: string, now = new Date()): Promise<number> {
+/** Every link of one person ends, in the caller's transaction: a seat revoked, or given a new authenticator. */
+export async function endLinksOf(
+  tx: TenantClient, principal: string, now = new Date(), why: Extract<LinkEnding, 'seat_ended' | 'new_authenticator'> = 'seat_ended',
+): Promise<number> {
   // Each relay's row before its links, in the order of their ids, as every
   // transaction that touches more than one relay takes them.
   const { rows: relays } = await tx.query<{ relay_id: string }>(
@@ -222,7 +226,7 @@ export async function endLinksOf(tx: TenantClient, principal: string, now = new 
   for (const one of relays) await relayRow(tx, one.relay_id, true);
   const { rows } = await tx.query<{ id: string }>(
     `SELECT id FROM relay_links WHERE principal = $1 AND status <> 'ended' FOR UPDATE`, [principal]);
-  await endLinks(tx, rows.map((row) => row.id), now, 'seat_ended');
+  await endLinks(tx, rows.map((row) => row.id), now, why);
   return rows.length;
 }
 

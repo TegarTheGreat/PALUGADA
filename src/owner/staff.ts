@@ -812,7 +812,7 @@ export class StaffSeats {
         [seatId, companyId, hashOf(invite), new Date(now.getTime() + STAFF_INVITE_TTL_MS)]);
       if (!rows[0]) return null;
       await tx.query('UPDATE staff_sessions SET ended_at = $2 WHERE seat_id = $1 AND ended_at IS NULL', [seatId, now]);
-      await endLinksOf(tx, `seat:${seatId}`, now);
+      await endLinksOf(tx, `seat:${seatId}`, now, 'new_authenticator');
       return rows[0];
     });
     if (!ended) throw new PalugadaError('contract.violation', 'no such seat in this company, or it is ended', { seatId });

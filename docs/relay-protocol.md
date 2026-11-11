@@ -264,7 +264,10 @@ of it not sent, and its people's links ended (`link_ended`, reason
 
 **Revocation** is immediate: everything the relay signs is answered `401`,
 its offers are void, what it was owed and not yet sent is dropped, and every
-link through it ends. A relay that answers an envelope with `410` has
+link through it ends. A paired relay that heard about one company is ended
+the same way when that company is erased, with one difference: it is still
+sent that company's `company_forgotten` (section 6.3), and nothing else. A
+relay that answers an envelope with `410` has
 forgotten the deployment; PALUGADA stops sending to it and asks the owner to
 pair it again.
 
@@ -453,9 +456,13 @@ thread.
 A person's link through this relay ended in PALUGADA: they linked another
 device through the same relay (`replaced`), they or the owner unlinked it
 (`unlinked`), their seat ended (`seat_ended`), the relay itself sent
-`link_end` (`relay`), or the owner took their company off the relay
-(`company_dropped`). A relay MUST treat a reason it does not know as it
-treats the rest. `to` names the person; `data` is
+`link_end` (`relay`), the owner took their company off the relay
+(`company_dropped`), or the owner gave them a new authenticator, as for a
+phone lost, which keeps their seat and ends every session and phone of theirs
+(`new_authenticator`): a relay MUST NOT tell that person their seat ended,
+and they may link a phone again once they have signed in. A relay MUST treat
+a reason it does not know as it treats the rest. `to` names the person;
+`data` is
 `{ "claim": "<the link_claim envelope's id that made the link>", "reason" }`,
 `claim` `null` for a link made before PALUGADA kept it; `text` says the phone
 is no longer linked. A relay MUST forget the device key that link was made
@@ -469,8 +476,10 @@ alone and `data` is `{}`; there is no `to`. A relay MUST drop everything it
 holds that names that `ref`, MUST show nothing it is sent later that names it,
 and MUST forget each person whose link heard about that company alone (a
 seat's link names one company in its `link_confirmed`), since their links end
-with the company. Erasing a company in PALUGADA cannot reach what a relay
-already handed to a push service or a phone (section 10).
+with the company. A relay that heard about that company alone is ended with
+it (section 5), and this is the last envelope it is sent, after its pairing
+has ended: everything it signs is answered `401`. Erasing a company in PALUGADA cannot reach
+what a relay already handed to a push service or a phone (section 10).
 
 #### `act_result`
 

@@ -9,11 +9,13 @@ guide links there rather than repeating the tables.
 ## What PALUGADA is
 
 PALUGADA is a self-hosted control plane for companies whose work is done by AI
-agents and whose only human is you, the owner. The agents do the work through
-capabilities the platform brokers, each classified by how hard it is to undo,
-and money is reserved before any work starts. Your job is one inbox of
-decisions: anything irreversible waits for you and your authenticator, and
-anything you never answer is cancelled rather than carried out.
+agents and whose owner is you. The agents do the work through capabilities
+the platform brokers, each classified by how hard it is to undo, and money is
+reserved before any work starts. Your job is one inbox of decisions: anything
+irreversible waits for you and your authenticator, and anything you never
+answer is cancelled rather than carried out. You may seat people beside you
+-- viewers, members and approvers -- who talk with you in each company's
+rooms and ask for work where they talk; what cannot be undone stays yours.
 
 ## The pages
 
@@ -21,6 +23,8 @@ anything you never answer is cancelled rather than carried out.
 |---|---|
 | [Getting started](getting-started.md) | Installing with Docker Compose or on this machine, `npm run setup`, the first sign-in, the first company and its first piece of work |
 | [Concepts](concepts.md) | Every idea the console shows you, explained once: companies, roles, tiers, budgets, the inbox, memory, runtimes and the rest |
+| [Rooms and people](workspace.md) | The company's rooms, the people you seat and what each kind may do, handles and profiles, asking for work from a message, meetings with people, importing from Slack, how long messages are kept, what the export carries, and what agents never see |
+| [Telling your staff's phones](../phones.md) | Putting people's notices on their phones through a relay: the reference relay, a private ntfy, pairing, **Link a phone** |
 | [How-to](how-to.md) | Recipes with exact steps: approving, answering, rerunning, hiring, connecting vendors and MCP servers, models, agent CLIs, schedules, triggers, bundles, languages, budgets, notifications, export |
 | [Operations](operations.md) | Running it for real: HTTPS, secrets, backups, upgrades, monitoring, more than one worker, sizing, the database roles |
 | [Coolify and Dokploy](coolify-dokploy.md) | Running it on a self-hosted platform that builds it from this repository and puts HTTPS in front |
@@ -31,7 +35,7 @@ anything you never answer is cancelled rather than carried out.
 
 This tour assumes nothing is installed yet. Each step names the console screen
 and what to look at on it. The console has a sidebar: **Home** at the top,
-then the chosen company's **Inbox**, **Overview**, **Work**, **Team**,
+then the chosen company's **Inbox**, **Rooms**, **Overview**, **Work**, **Team**,
 **Memory**, **Money** and **History**, and **Settings** and
 **Stop everything** at the foot. On a phone the same pages are in a tab bar
 along the bottom and under **More**.
@@ -44,8 +48,9 @@ along the bottom and under **More**.
 
 2. **Sign in.** Open `http://127.0.0.1:8787`. The page says
    **Welcome back** and asks for the six-digit code from your authenticator
-   app. There are no user names or passwords: PALUGADA has one human, and the
-   code is the proof. The session lives in that browser tab only, so closing
+   app. There are no user names or passwords: PALUGADA has one owner, and the
+   code is the proof. People you seat later sign in with their handle and a
+   code of their own (see [Rooms and people](workspace.md)). The session lives in that browser tab only, so closing
    the tab signs you out. The first time, the console walks you through
    itself, moving to each page it describes; **Skip the tour** ends it, and
    **Take the tour** in the menu under **Owner** shows it again.
@@ -129,7 +134,9 @@ along the bottom and under **More**.
      schedules, which for now need the workaround in
      [how-to](how-to.md#schedule-recurring-work);
    - HTTPS and backups before the deployment matters to anyone
-     ([operations](operations.md)).
+     ([operations](operations.md));
+   - the people who work with you, under **Settings**, **People**, and their
+     phones through a relay ([Rooms and people](workspace.md)).
 
 If something in this tour did not happen the way it is described, the
 [troubleshooting](troubleshooting.md) page lists the messages you are likely

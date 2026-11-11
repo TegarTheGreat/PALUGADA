@@ -176,10 +176,12 @@ behind a pooler that does not keep `LISTEN`, set
 [`PALUGADA_LISTEN_DATABASE_URL`](../configuration.md) to a direct connection.
 
 Some paths must be reachable from the internet, not only from your browser:
-`/api/hooks/<id>` for [triggers](how-to.md#let-other-services-start-work-triggers)
-and `/api/channels/telegram` for Telegram's button presses. Both check their
-own token or signature. Apart from those, signing in and the health check,
-every route needs a signed-in session.
+`/api/hooks/<id>` for [triggers](how-to.md#let-other-services-start-work-triggers),
+`/api/channels/telegram` for Telegram's button presses, and, for a relay that
+posts to the deployment rather than being fetched from, `/api/relay/v1/`
+([phones](../phones.md)). Each checks its own token or signature. Apart from
+those, signing in, joining from an invite and the health check, every route
+needs a signed-in session.
 
 ## Secrets
 
@@ -241,13 +243,29 @@ so restart them all before removing the old key.
 
 ## Backups
 
-The database holds everything PALUGADA knows: every company's structure,
-tasks and their journals, the event log, memory, skills, decisions and your
-notes, budgets and spending, configuration versions, the owner's sessions
-(hashed) and authenticators (as references), credentials (as references),
+The database holds almost everything PALUGADA knows: every company's
+structure, tasks and their journals, the event log, memory, skills, decisions
+and your notes, budgets and spending, configuration versions, the rooms and
+every message said in them, the owner's and the staff's sessions (hashed)
+and authenticators (as references or sealed), credentials (as references),
 and the record of applied migrations.
 
-It does not hold the secrets themselves, the vendor, MCP and price files,
+It does not hold the files. What roles drafted, the pictures they made and
+the files you uploaded are under the files root (`PALUGADA_FILES_ROOT`), a
+folder per company. The files people attach to messages in the rooms are
+kept beside each company's folder, in `<companyId>.people`, or under
+`PALUGADA_PEOPLE_FILES_ROOT` when it is set; the database holds each one's
+name, size and SHA-256, never its bytes. **Back the files root, and the
+people files root when it is set, up with the database, taken at the same
+moment** -- with PALUGADA stopped, or with a snapshot of the volume taken
+as the dump starts -- and restore them together. A dump restored without them
+brings back every message with its attachments' names, each of which then
+answers that the file is no longer kept, and every draft the company made
+missing. Files copied at another moment than the dump leave rows whose
+files are gone, or room files no row names, which the next retention pass
+removes once they are an hour old.
+
+Nor does it hold the secrets themselves, the vendor, MCP and price files,
 the built console, or the agent CLIs' home directory. The charters'
 repository (`charters` in the state directory) holds nothing the database
 does not, only their history as git keeps it. Back the rest up
@@ -273,7 +291,9 @@ docker compose exec -T db pg_dump -U postgres -Fc palugada > palugada.dump
 To restore, prepare a server with PostgreSQL 16 and pgvector, create the
 three roles and an empty database with `npm run db:setup` (it reads the
 passwords from `.env`, so use the same one), restore the dump into it as a
-superuser, keeping the dump's object ownership, and start the platform.
+superuser, keeping the dump's object ownership, put the files root (and the
+people files root, when one is set) back where the same variables name, and
+start the platform.
 Practise this on a spare machine before you need it.
 
 A company the owner closed is erased from the database on the day it names,
@@ -604,8 +624,12 @@ series with `sum`.
 | `palugada_worker_stage_failures_total{stage}` | counter | Stages of a pass that failed, by stage; the `stage.failed` log lines say why |
 | `palugada_worker_loop_failures_total{loop}` | counter | Passes of the housekeeping loop (`tick`) and of a place (`place`) that failed outright |
 | `palugada_database_connections{pool,state}` | gauge | Connections the process holds, `idle` or `busy`, and callers `waiting` for one |
+| `palugada_people{kind}` | gauge | People of the workspace: the owner, and joined seats by kind (`viewer`, `member`, `approver`) |
+| `palugada_room_messages{company}` | gauge | Messages people wrote in rooms that are kept, by company; a purge or an erasure lowers it. No words, only how many |
 | `palugada_room_streams` | gauge | Room streams this process holds open, about one per console tab |
 | `palugada_room_feed_reads_total`, `palugada_room_work_reads_total` | counter | Reads of the rooms' feed and of the journal for those streams: one per watched company per change (or every five seconds) and per second, however many tabs watch it |
+| `palugada_relay_deliveries_total{outcome}` | counter | Envelopes this process sent to relays, by how each send ended: `delivered`, `failed` (to be tried again), `dead` (given up after eight tries, shown with **Retry**) or `gone` (the relay said it no longer knows the deployment, which pauses it until you pair it again, or the notice was dropped because its person may no longer see its room) |
+| `palugada_relay_refused_total{reason}` | counter | Envelopes from relays this process refused, by why; one nobody paired signed is counted here and written nowhere, so a flood of them shows here first |
 | `process_resident_memory_bytes`, `nodejs_heap_used_bytes`, `nodejs_eventloop_delay_p99_seconds` and the like | gauge | The process itself |
 
 The counters start again at zero when the process does, which `rate()` and

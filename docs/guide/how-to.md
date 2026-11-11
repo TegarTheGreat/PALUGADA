@@ -1646,8 +1646,15 @@ the console replaces that channel's variables.
 
 - **Export**: under **Settings**, **Company**, **Export**, press
   **Download as JSON**. The file holds the whole company: structure,
-  tasks, events, memory, skills and every configuration version. Prompt and
-  response bodies are left out, and credentials are references only.
+  tasks, events, memory, skills and every configuration version, and its
+  rooms: every room, private rooms and direct conversations included, who
+  was in each, every message, what edits replaced, reactions, pins, people's
+  meetings, Slack imports and the name, kind, size and fingerprint of each
+  file attached to a message. Prompt and response bodies are left out,
+  credentials are references only, and the files' contents are not in it
+  (see [what the export carries](workspace.md#what-the-export-carries)).
+  Your staff are told when they join that your export holds everything they
+  write, direct conversations too.
 - **Import in the console:** on **Home**, press **Restore from an export**,
   choose the **Export file**, read the preview of what comes back and what
   does not, set the **Name** and **Short name**, press **Restore it** and
@@ -1659,7 +1666,14 @@ the console replaces that channel's variables.
 Every reference is remapped on the way in. Credentials must be set up again
 behind their references, skills from outside come back quarantined, and
 bundle installs, model traces, retention records and devices are not
-restored.
+restored. Nor are the people: a restored company has no seats, so seat its
+staff again; what the old seats said is drawn under the names they said it
+under, and their links to Slack's old authors are not restored. Who read
+what, mutes, follows and the notices sent to phones are not restored, and a
+restored company tells nobody's phone anything until its people link one
+again. A file attached to a message comes back as its name and size only,
+since its contents were never in the archive; an import from Slack that was
+still being read comes back failed.
 
 ## Close a company
 
@@ -1676,11 +1690,15 @@ you to erase (UU 27/2022 on personal data).
 4. Until that day, **Keep this company** takes the closing back. It stays
    frozen; unfreeze it when you want it working again.
 5. On the day, the worker erases it: every row of it -- work, history,
-   memory, documents, model traces, conversations -- and the keys its
-   divisions held. Then what it kept on disk: its directory under the files
-   root (`PALUGADA_FILES_ROOT`), with the drafts, pictures and recordings its
-   roles made, and its folder in the charter repository, whose removal is
-   committed there. Just before, every relay that may hold anything of it
+   memory, documents, model traces, conversations, its rooms and everything
+   said in them -- the keys its divisions held, and its staff's seats and
+   their sign-in secrets. Then what it kept on disk: its directory under the
+   files root (`PALUGADA_FILES_ROOT`), with the drafts, pictures and
+   recordings its roles made; the files people attached to messages, in
+   `<companyId>.people` beside that directory or under
+   `PALUGADA_PEOPLE_FILES_ROOT`, with any Slack export still waiting there;
+   and its folder in the charter repository, whose removal is committed
+   there. Just before, every relay that may hold anything of it
    is told to forget the company. **This deployment**, **Erased companies**
    keeps one line: its name, when it was closed and erased, and how much
    went.

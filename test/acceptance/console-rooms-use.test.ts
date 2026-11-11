@@ -28,7 +28,8 @@ import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { chromium, openPage, type Page } from '../helpers/browser.ts';
 import { fakeRelay } from '../helpers/fake-relay.ts';
-import { pairThrough } from '../helpers/relay.ts';
+import { linkThrough, pairThrough } from '../helpers/relay.ts';
+import { tell, toldTo } from '../helpers/notices.ts';
 import { companyRoomOf, ok, personIn, said, type Console, type PersonIn } from '../helpers/rooms.ts';
 
 before(ensureSchema);
@@ -375,6 +376,60 @@ test('a message found, pinned or named in Activity opens its room around it, mar
   } finally {
     await page.close();
     await api.close();
+  }
+});
+
+test("a notice's link opens its room around the message it tells of, marked: a relay's handle and a chat's link alike", { skip }, async () => {
+  // A notice tells of a message, and opening it opens the room around that
+  // message, as a search hit, a pin and an Activity entry do (STATUS 2.218).
+  // A relay's link names only a handle, which the console resolves once its
+  // person has signed in (STATUS 2.216); the owner's chat names the room and
+  // the message's place in it.
+  const { fixture, api, owner } = await started();
+  const relay = await fakeRelay();
+  try {
+    const me = personIn(api, owner, fixture.companyId);
+    const budi = await joined(api, owner, fixture, 'Budi Santoso', 'member', 'budi');
+    const roomId = await companyRoomOf(me);
+    await companyRoomOf(budi.in);
+    const relayId = await pairThrough(api, owner, relay, { companies: [fixture.companyId], share: 'summary' });
+    const phone = await linkThrough(api, budi.token, relay, relayId, { device: true, owner: false });
+    await backlog(fixture, roomId, numbered('Sebelumnya nomor', 10));
+    const wanted = await said(me, roomId, { body: '@budi tolong cek stok gayo hari ini.', mentions: [budi.principal] });
+    await backlog(fixture, roomId, numbered('Sesudahnya nomor', 80));
+    await tell(fixture.companyId, api.master);
+    const notice = toldTo(relay, phone).find((one) => one.type === 'room_activity');
+    assert.ok(notice, 'Budi is told of the mention');
+    const handle = new URL(String(notice.link)).searchParams.get('notice');
+    const at = await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, fixture.companyId);
+      return Number((await tx.query<{ position: string }>('SELECT position FROM room_messages WHERE id = $1', [wanted])).rows[0]!.position);
+    });
+    const focused = `document.querySelector('[role="log"] [data-message="${wanted}"][data-focused]')`;
+
+    // Through the relay: the handle alone, opened once Budi has signed in.
+    const phonePage = await drawn(api, DESKTOP);
+    try {
+      await staffSignsIn(phonePage, api, budi.handle, budi.code, `?notice=${handle}`);
+      await phonePage.waitFor(`${focused} && ${IN_VIEW('tolong cek stok gayo')}`, 'the mention, marked, in its room');
+      assert.equal(await phonePage.evaluate<string>('location.hash'), `#/c/${fixture.companyId}/rooms?item=${roomId}.${at}`);
+      assert.equal(await phonePage.evaluate<string>('location.search'), '', 'the handle leaves the address once read');
+    } finally {
+      await phonePage.close();
+    }
+
+    // The owner's chat: the room and the message's place in the link.
+    const chatPage = await drawn(api, DESKTOP);
+    try {
+      await ownerSignsIn(chatPage, api, `?company=${fixture.companyId}&room=${roomId}&at=${at}`);
+      await chatPage.waitFor(`${focused} && ${IN_VIEW('tolong cek stok gayo')}`, "the message, marked, from the chat's link");
+      assert.equal(await chatPage.evaluate<string>('location.search'), '', "the link's query is dropped once read");
+    } finally {
+      await chatPage.close();
+    }
+  } finally {
+    await api.close();
+    await relay.close();
   }
 });
 

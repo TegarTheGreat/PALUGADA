@@ -914,9 +914,12 @@ test("a run's choices reach a seat's phone redacted, as its question does", asyn
   }
 });
 
-test('a company erased is forgotten at every relay that may hold anything of it', async () => {
+test('a company erased is forgotten at every relay that may hold anything of it, one the erasure ends too', async () => {
   // STATUS section 2.216: the erasure's cascade takes every envelope of
   // the company and every link of its seats, so the relays are told first.
+  // This relay heard about the erased company alone, so the erasure also ends
+  // it (STATUS 2.217): ended, it is still told to forget the company, and
+  // sent nothing else.
   const { eraseDueCompanies } = await import('../../src/governance/closing.ts');
   const { companyRef } = await import('../../src/relay/envelope.ts');
   const w = await workspace('relay-people-erased', { share: 'content' });
@@ -933,10 +936,20 @@ test('a company erased is forgotten at every relay that may hold anything of it'
     const before = w.relay.received.length;
     const pass = await eraseDueCompanies({});
     assert.equal(pass.erased.length, 1, JSON.stringify(pass.failed));
+    const status = async () => (await withControlPlane((tx) => tx.query<{ status: string }>(
+      'SELECT status FROM relays WHERE id = $1', [w.relayId]))).rows[0]!.status;
+    assert.equal(await status(), 'revoked', 'a relay left hearing about no company is ended');
     await sendOutbox(w.api.master);
     const after = w.relay.received.slice(before).map((one) => one.envelope);
     const forgotten = after.filter((one) => one?.type === 'company_forgotten');
     assert.equal(forgotten.length, 1, 'the relay is told to forget the company');
+    assert.deepEqual(after.map((one) => one?.type), ['company_forgotten'], 'and, ended, is sent nothing else');
+    const sentNow = w.relay.received.length;
+    await sendOutbox(w.api.master);
+    assert.equal(w.relay.received.length, sentNow, 'nor anything at the next pass');
+    const { rows: owed } = await withControlPlane((tx) => tx.query(
+      `SELECT 1 FROM relay_outbox WHERE relay_id = $1 AND status <> 'delivered'`, [w.relayId]));
+    assert.deepEqual(owed, [], 'it is owed nothing more');
     const { rows: [relay] } = await withControlPlane((tx) => tx.query<{ salt: Buffer }>('SELECT salt FROM relays WHERE id = $1', [w.relayId]));
     assert.deepEqual(forgotten[0].company, { ref: companyRef(relay!.salt, companyId) }, 'by the reference that relay knows it by, and nothing else');
     assert.equal(JSON.stringify(forgotten[0]).includes(companyId), false);

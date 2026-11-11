@@ -358,6 +358,11 @@ test('erasing a company takes it off every relay, and the relay can still be cha
     ['both', 'paired', [staying.companyId]],
     ['only', 'revoked', []],
   ], 'each relay hears about what is left; one that heard only about the erased company has nothing to hear, and is ended');
+  const { rows: told } = await withControlPlane((tx) => tx.query<{ name: string }>(
+    `SELECT r.name FROM relay_outbox o JOIN relays r ON r.id = o.relay_id
+      WHERE o.type = 'company_forgotten' AND o.status = 'pending' AND r.id = ANY($1::uuid[]) ORDER BY r.name`, [relays]));
+  assert.deepEqual(told.map((row) => row.name), ['both', 'only'],
+    'each is still owed the word to forget the company, the relay the erasure ended too (STATUS 2.216)');
   const { planRelaySettings } = await import('../../src/relay/relays.ts');
   const planned = await planRelaySettings(relays[0]!, { companies: [closing.companyId, staying.companyId], mayPress: false });
   assert.deepEqual(planned.changes.companies, [staying.companyId], 'an id the relay already had and that is gone is let go, not refused');

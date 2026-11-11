@@ -13,6 +13,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { closePools } from '../../src/db/pool.ts';
+import { roomsOnControlPlane, withControlPlane } from '../../src/db/tenant.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { RelayChannel } from '../../src/relay/channel.ts';
@@ -89,9 +90,15 @@ test("no company, room, thread, item or task id reaches a relay, and a notice's 
     // Each opens, after sign-in, for the person it was for.
     const forSari = await opens(api, sari.token, mention.link);
     assert.equal(forSari.status, 200, JSON.stringify(forSari.body));
-    assert.deepEqual(forSari.body, { companyId: fixture.companyId, roomId: room, threadOf: root, itemId: null, taskId: null });
+    // The mention's own place, so the thread opens at it, marked (STATUS 2.218).
+    const replyAt = await withControlPlane(async (tx) => {
+      await roomsOnControlPlane(tx, fixture.companyId);
+      return Number((await tx.query<{ position: string }>(
+        `SELECT position FROM room_messages WHERE thread_of = $1 AND body LIKE '@sari%'`, [root])).rows[0]!.position);
+    });
+    assert.deepEqual(forSari.body, { companyId: fixture.companyId, roomId: room, threadOf: root, itemId: null, taskId: null, position: replyAt });
     const forOwner = await opens(api, ownerToken, approval.link);
-    assert.deepEqual(forOwner.body, { companyId: fixture.companyId, roomId: null, threadOf: null, itemId, taskId: null });
+    assert.deepEqual(forOwner.body, { companyId: fixture.companyId, roomId: null, threadOf: null, itemId, taskId: null, position: null });
     assert.deepEqual((await opens(api, ownerToken, done.link)).body.taskId, task.id);
 
     // And for nobody else: not another seat, not the owner, not a handle made up.

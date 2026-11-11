@@ -199,6 +199,30 @@ test("the rest of the rooms' writes are held to a person's minute too, a viewer'
   }
 });
 
+test('marking everything read is counted with the read marks, a viewer\'s too', async () => {
+  // Marking everything read (STATUS 2.218) moves every read mark and mention
+  // of the person's at once, in one transaction: it is held to the same
+  // minute as a read mark of one room (STATUS 2.217), or a tab could send it
+  // without end where a room's own read mark would be refused.
+  const { fixture, api, owner } = await workspace('limits-read-all');
+  try {
+    const viewer = await seated(fixture, 'Sari', 'viewer');
+    const sari = personIn(api, viewer.token, fixture.companyId);
+    const company = await companyRoomOf(owner);
+    await companyRoomOf(sari);
+    await said(owner, company, 'Rapat pagi dimulai jam delapan.');
+    const tooFast = (answer: { status: number; body: any }, what: string) => refusedWith(answer, 429, 'workspace.too_fast', what);
+    const position = Number(ok(await sari.page(company)).messages.at(-1).position);
+    for (let n = 0; n < 119; n += 1) ok(await sari.read(company, { position }), `read ${n}`);
+    ok(await sari.post('/me/read-all'), 'everything read, the hundred and twentieth');
+    tooFast(await sari.post('/me/read-all'), 'everything read again, past the minute');
+    tooFast(await sari.read(company, { position }), 'nor a read mark of one room');
+    ok(await owner.post('/me/read-all'), "the owner's minute is the owner's");
+  } finally {
+    await api.close();
+  }
+});
+
 test('a reaction the database kept that is no longer one can still be taken back by its own words', async () => {
   // The database's check is looser than the server's: a symbol in its text
   // form, or a star, written before the server held a reaction to one emoji,

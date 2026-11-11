@@ -631,6 +631,10 @@ test("a notice's link opens its room and thread at the deployment's own address,
   const room = new URL(make({ companyId: 'c1', roomId: 'r1', threadOf: 'm1' })!);
   assert.equal(room.pathname, '/app/');
   assert.deepEqual([...room.searchParams.entries()], [['company', 'c1'], ['room', 'r1'], ['thread', 'm1']]);
+  // A notice about a message names its place in the room, so the room opens
+  // around it, marked, as a search hit or an Activity entry opens it (STATUS 2.218).
+  const at = new URL(make({ companyId: 'c1', roomId: 'r1', threadOf: 'm1', position: 42 })!);
+  assert.deepEqual([...at.searchParams.entries()], [['company', 'c1'], ['room', 'r1'], ['thread', 'm1'], ['at', '42']]);
   assert.deepEqual([...new URL(make({ companyId: 'c1', itemId: 'i1' })!).searchParams.entries()], [['company', 'c1'], ['item', 'i1']]);
   assert.equal(noticeLinks(() => null)!({ companyId: 'c1', taskId: 't1' }), null);
 });

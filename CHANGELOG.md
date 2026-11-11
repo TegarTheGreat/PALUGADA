@@ -1169,7 +1169,10 @@ The first version. What it holds, in the order an owner meets it.
   to the seats you have here, after seeing which private rooms each link
   would open; unlinking takes those back. Files come as their names, and
   direct conversations are counted and left out. Nothing imported is new to
-  anyone, importing the same export again adds nothing, a damaged part is
-  reported line by line, and an export that unpacks past what PALUGADA reads
-  is refused. The upload is kept beside the company's files, where no agent
-  reaches it, until it is read, and a week at most (STATUS 2.214).
+  anyone, even from a later, longer export, and importing the same export
+  again adds nothing. It is read a day and a thousand messages at a time,
+  so your people keep posting while a large channel comes in and the report
+  counts as it goes; a damaged part, or a channel that cannot come in, is
+  reported line by line, and an export that unpacks past what PALUGADA
+  reads is refused. The upload is kept beside the company's files, where no
+  agent reaches it, until it is read, and a week at most (STATUS 2.214).

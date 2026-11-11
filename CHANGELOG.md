@@ -1243,3 +1243,15 @@ The first version. What it holds, in the order an owner meets it.
   keep to the keyboard from the composer, and Enter saves an edit.
   Shortening how long messages are kept asks first and says how many go
   (STATUS 2.218).
+- The documents describe the workspace. The README says you seat a team who
+  talk in rooms and ask for work there, and the guide has a page on rooms
+  and the people you seat: the three kinds of seat, handles and signing in,
+  profiles, phones, importing from Slack, meetings, how long messages are
+  kept, what the export carries and what agents never see. Back up the files
+  root, and `PALUGADA_PEOPLE_FILES_ROOT` when you set one, with the database
+  and at the same moment: the files people attach to messages are kept
+  there, not in the database, and a dump restored alone brings them back as
+  names. The threat model has a section on a member of staff, and
+  docs/configuration.md names every variable the platform reads, among them
+  `PALUGADA_CONSOLE_ORIGIN`, `PALUGADA_HOST`, `PALUGADA_PORT` and
+  `PALUGADA_WORKER_ID` (STATUS 2.219).

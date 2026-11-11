@@ -661,8 +661,11 @@ the master key cannot sign as the deployment (section 2.5). The application
 role has no grant on any relay table. The owner rotates it with a fresh
 factor; the old key keeps signing beside the new for a week, and keeps
 signing each relay's `keys_rotated` until that relay has taken it, so a relay
-that was down for the week is not stranded; a second rotation is refused
-while any paired relay is still owed the first. A relay takes the new key
+that was down for the week is not stranded: that envelope is never given up
+or purged while the relay is paired, but tried again at most an hour apart,
+and pairing the relay again in place, which hands it the current key,
+settles it. A second rotation is refused while any paired relay is still
+owed the first. A relay takes the new key
 only from an envelope the key it pinned now and the new key both sign, so
 whoever kept the old key cannot announce a key of their own
 (`docs/relay-protocol.md` section 2.3; the reference relay holds to it).
@@ -690,17 +693,20 @@ deployment, so an accept cannot be replayed from another pairing
 the owner gave. What a relay is told starts at `signal` -- that something
 happened, and where it opens -- with presses and replies off; widening any
 of it, for the relay or for one company on it, takes the device again, and
-narrowing voids what it no longer allows.
+narrowing voids what it no longer allows -- by its settings or by pairing it
+again in place naming fewer companies, which also ends the links of the
+dropped companies' people through it.
 
 **What a relay is told** is what a person who linked a phone themselves is
 owed, at the lowest of three shares -- the relay's, the one the owner set for
 that company on that relay, and the person's own -- and nothing else: never a
 room list, a history, a membership, a secret, a file's bytes, a prompt, a
 transcript or what a customer wrote. People and companies are HMACs under a
-salt per relay, and no envelope carries a company, room, thread, item or task
-id: a notice's link names a handle made for that notice alone, which the
-owner API resolves only for the person it was for, once they have signed in
-(`openNotice`, `src/relay/links.ts`). Two relays therefore cannot join what
+salt per relay, and no envelope or answer carries a company, room, thread,
+item, task or message id: a notice's link names a handle made for that
+notice alone, which the owner API resolves only for the person it was for,
+once they have signed in (`openNotice`, `src/relay/links.ts`), and a reply
+is answered with the relay's own client id. Two relays therefore cannot join what
 each knows by a person, a company or a link; they can tell that they serve
 the same deployment, which every envelope names. Titles, summaries and a
 run's choices are redacted on the way out. Whether a person may still see a
@@ -728,7 +734,8 @@ envelope id never taken before; a link that is this relay's and active, for a
 company the relay hears about; the device's signature when the link has a
 device key, taken once and within five minutes of the moment it signs; then a
 closed list of types (`src/relay/inbound.ts`). Nothing is written for an
-unknown relay or a bad signature. The open route verifies a paired relay's
+unknown relay or a bad signature, and a header of more than four signatures
+is taken as unsigned without checking any. The open route verifies a paired relay's
 signature against keys held in memory before anything else, so a paired
 relay is held only to its own sixty new envelopes a minute in each process,
 pushed or pulled, while every other request is throttled per address and

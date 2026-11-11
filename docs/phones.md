@@ -99,11 +99,18 @@ In the console, **This deployment, Relays**:
    counts. Under **What each company's notices may say** you can hold a
    company below the relay's share.
 
-If the relay ever cannot verify what PALUGADA sends -- it was off through a
-whole key rotation, or lost its state file -- its card says the relay forgot
-this deployment. Start the relay with the fingerprint PALUGADA shows now,
-then press **Pair again** on its card and type the relay's fingerprint as the
-first time. Everyone's links and your settings stay as they are.
+If the relay ever cannot verify what PALUGADA sends -- it lost its state
+file, or was given PALUGADA's fingerprint wrong -- it refuses every envelope,
+and its card says "The relay answered 401." and, after eight tries, counts
+what it gave up on; a relay still owed PALUGADA's new key says so too, and
+PALUGADA keeps trying that one hourly for as long as the relay is paired.
+(Only a relay that answers 410 shows "The relay forgot this deployment: pair it again.")
+Start the relay with the fingerprint PALUGADA shows now, then press **Pair
+again** on its card and type the relay's fingerprint as the first time.
+Everyone's links and your settings stay as they are, and the new key it
+missed is taken from the pairing. The companies you name then are the ones
+it hears about from then on: leave one out and that company's people's
+phones are unlinked from this relay.
 
 PALUGADA's own key changes with **New key**, on the same page; a second one
 waits until every relay has taken the first. The reference relay changes its

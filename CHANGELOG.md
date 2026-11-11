@@ -1175,8 +1175,10 @@ The first version. What it holds, in the order an owner meets it.
   so your people keep posting while a large channel comes in and the report
   counts as it goes; a damaged part, or a channel that cannot come in, is
   reported line by line, and an export that unpacks past what PALUGADA
-  reads is refused. The upload is kept beside the company's files, where no
-  agent reaches it, until it is read, and a week at most (STATUS 2.214).
+  reads is refused. If you keep messages for a number of days, what was said
+  in Slack before them goes at the next retention pass, as every message
+  does. The upload is kept beside the company's files, where no agent
+  reaches it, until it is read, and a week at most (STATUS 2.214).
 - People meet people: anyone in a room sets a meeting from their own words
   there, with the Meeting button or `/meet` (`/rapat`), giving it a time, a
   length, the people asked -- only people who can see the room -- and a call

@@ -1162,3 +1162,13 @@ The first version. What it holds, in the order an owner meets it.
   retention removes, is withdrawn from the phone. You hear people only once
   you turn it on, inside your window, never as an inbox item, and the daily
   digest counts the team's cards as your badge does (STATUS 2.213).
+- People meet people: anyone in a room sets a meeting from their own words
+  there, with the Meeting button or `/meet` (`/rapat`), giving it a time, a
+  length, the people asked -- only people who can see the room -- and a call
+  link pasted in, which PALUGADA never opens. The words are its title and
+  agenda and its thread is the notes. The people asked are reminded ten
+  minutes before it starts, once, in its thread, in their Activity and on a
+  linked phone, and only while they can still see the room; whoever set it,
+  or you, can move or cancel it, and a cancelled meeting reminds nobody. A
+  meeting is not work: no agent sees it, nothing is spent, and it travels
+  with the company's export (STATUS 2.215).

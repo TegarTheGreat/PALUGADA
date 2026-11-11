@@ -371,7 +371,9 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
     if (offer.act === 'answer' && !(offer.option ?? answerText ?? '').trim()) throw new Refusal(422, 'relay.press_unknown', offer.company_id);
     // Spent before the decision is tried: a press the inbox refuses after
     // this is not a token left to be tried again.
-    await tx.query('UPDATE relay_offers SET uses = uses + 1 WHERE token_hash = $1', [hash]);
+    await tx.query(
+      'UPDATE relay_offers SET uses = uses + 1, spent_at = CASE WHEN uses + 1 >= max_uses THEN $2::timestamptz END WHERE token_hash = $1',
+      [hash, now]);
     // The other buttons for the same item to the same person go with it.
     await tx.query(
       `UPDATE relay_offers SET voided_at = $3 WHERE link_id = $1 AND inbox_item_id = $2 AND voided_at IS NULL AND token_hash <> $4`,
@@ -430,7 +432,7 @@ async function press(relay: RelayRow, body: Body, now: Date): Promise<InboundAns
 async function giveBack(relayId: string, linkId: string, itemId: string, hash: string, pressedAt: Date): Promise<void> {
   await withControlPlane(async (tx) => {
     await relayRow(tx, relayId, true);
-    await tx.query('UPDATE relay_offers SET uses = greatest(uses - 1, 0) WHERE token_hash = $1', [hash]);
+    await tx.query('UPDATE relay_offers SET uses = greatest(uses - 1, 0), spent_at = NULL WHERE token_hash = $1', [hash]);
     await tx.query(
       'UPDATE relay_offers SET voided_at = NULL WHERE link_id = $1 AND inbox_item_id = $2 AND voided_at = $3 AND token_hash <> $4',
       [linkId, itemId, pressedAt, hash]);
@@ -491,7 +493,9 @@ async function redeemRoomOffer(
       throw new Refusal(422, 'relay.owner_device', offer.company_id);
     }
     if (offer.voided_at || offer.uses >= offer.max_uses || offer.expires_at <= now) throw new Refusal(422, 'relay.press_spent', offer.company_id);
-    await tx.query('UPDATE relay_offers SET uses = uses + 1 WHERE token_hash = $1', [hash]);
+    await tx.query(
+      'UPDATE relay_offers SET uses = uses + 1, spent_at = CASE WHEN uses + 1 >= max_uses THEN $2::timestamptz END WHERE token_hash = $1',
+      [hash, now]);
     // The person as they are now: a seat ended since the notice acts as nobody.
     let person: Viewer['person'] = { principal: 'owner', name: null };
     let kind: Viewer['kind'] = 'owner';

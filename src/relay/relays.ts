@@ -23,7 +23,7 @@ import { PalugadaError } from '../errors.ts';
 import { pingSaid } from '../owner/relay-said.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import type { MasterKey } from '../settings/store.ts';
-import { envelopeBody, envelopeHeaders, envelopeId, narrowedEnvelope, SHARE_LEVELS, type Share } from './envelope.ts';
+import { companyRef, envelopeBody, envelopeHeaders, envelopeId, narrowedEnvelope, SHARE_LEVELS, type Share } from './envelope.ts';
 import { signingKeys, type DeploymentIdentity } from './identity.ts';
 import { tokenHash } from './offers.ts';
 import { enqueue } from './outbox.ts';
@@ -587,5 +587,47 @@ export async function announceRotation(identity: DeploymentIdentity, now = new D
       }, now);
     }
     return rows.length;
+  });
+}
+
+/**
+ * A company about to be erased (STATUS section 2.216): every relay that
+ * hears about it, or was ever sent anything of it, is told to forget it, in
+ * an envelope that names the company only by the reference that relay knows
+ * it by (`company_forgotten`). It is owed by no link and of no company, so
+ * the erasure that follows, whose cascade takes every envelope of the
+ * company and every link of its seats, leaves it to be sent: the relays
+ * drop what they hold of the company and its people's phones, and show
+ * nothing of it sent later. Its id is made from the company, so an erasure
+ * tried again owes it once. Written before the erasure's own transaction, so
+ * that transaction takes no relay's row while it holds the company's.
+ */
+export async function forgetCompanyAtRelays(companyId: string, now = new Date()): Promise<number> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `SELECT r.id FROM relays r
+        WHERE r.status = 'paired'
+          AND (r.all_companies OR $1 = ANY(r.companies) OR EXISTS (SELECT 1 FROM relay_outbox o WHERE o.relay_id = r.id AND o.company_id = $1))
+        ORDER BY r.id`,
+      [companyId]);
+    if (rows.length === 0) return 0;
+    const { rows: [control] } = await tx.query<{ deployment: string }>('SELECT deployment_id::text AS deployment FROM platform_control');
+    let told = 0;
+    // In the order of their ids, as every transaction that touches more than one relay takes them.
+    for (const one of rows) {
+      const relay = (await relayRow(tx, one.id, true))!;
+      const id = envelopeId({ deployment: control!.deployment, relay: relay.id, link: null, type: 'company_forgotten', subject: companyId });
+      const wrote = await enqueue(tx, {
+        id, relayId: relay.id, linkId: null, companyId: null, type: 'company_forgotten', subjects: [],
+        body: envelopeBody({
+          v: 1, id, type: 'company_forgotten', at: now.toISOString(), deployment: control!.deployment, relay: relay.id,
+          company: { ref: companyRef(relay.salt, companyId) }, data: {},
+        }),
+      }, now);
+      // A company's share goes with it.
+      await tx.query('UPDATE relays SET company_shares = company_shares - $2 WHERE id = $1', [relay.id, companyId]);
+      if (wrote) told += 1;
+    }
+    return told;
   });
 }

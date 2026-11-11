@@ -13,6 +13,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { TenantClient } from '../db/tenant.ts';
 import { offerLabel } from '../owner/relay-said.ts';
+import { redactor } from '../secrets/manager.ts';
 import type { Share } from './envelope.ts';
 
 /** How long an offer may be pressed, at most; never past the item's own expiry. */
@@ -56,7 +57,9 @@ export async function mintOffers(tx: TenantClient, input: {
     // The choices are the run's own words, and words are what `content` carries.
     if (input.share === 'content') {
       for (const option of (input.item.options ?? []).slice(0, 6)) {
-        if (option.length <= 80) wanted.push({ act: 'answer', option, label: option });
+        // The button shows the choice redacted, as the question beside it is;
+        // the press answers with what the run offered, which is kept here.
+        if (option.length <= 80) wanted.push({ act: 'answer', option, label: redactor.redact(option) });
       }
     }
     wanted.push({ act: 'answer', option: null, label: offerLabel(input.language, 'answer') });

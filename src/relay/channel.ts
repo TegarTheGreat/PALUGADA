@@ -108,7 +108,8 @@ export class RelayChannel implements OwnerChannel {
         if (item.consequenceIfDenied) data.ifDenied = redactor.redact(item.consequenceIfDenied);
         if (question) {
           data.question = redactor.redact(item.question!);
-          data.options = item.options ?? [];
+          // The run's choices are its words too, redacted as its question is.
+          data.options = (item.options ?? []).map((option) => redactor.redact(option));
           if (item.asker) data.asker = item.asker;
         }
         if (item.expiresAt) data.expiresAt = item.expiresAt.toISOString();

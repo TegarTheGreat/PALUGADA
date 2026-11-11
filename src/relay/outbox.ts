@@ -15,6 +15,7 @@
 import type { KeyObject } from 'node:crypto';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { envelopeHeaders } from './envelope.ts';
+import { tokenHash } from './offers.ts';
 
 /** Rows claimed for one relay in one pass. */
 export const CLAIM_BATCH = 50;
@@ -47,6 +48,14 @@ export function countRefusal(reason: string): void {
   RELAY_COUNTS.refused.set(reason, (RELAY_COUNTS.refused.get(reason) ?? 0) + 1);
 }
 
+/** Where a notice opens in PALUGADA, kept beside its envelope and never in it (STATUS section 2.216). */
+export interface Opens {
+  roomId?: string | null | undefined;
+  threadOf?: string | null | undefined;
+  itemId?: string | null | undefined;
+  taskId?: string | null | undefined;
+}
+
 export interface OutboxEntry {
   id: string;
   relayId: string;
@@ -55,6 +64,9 @@ export interface OutboxEntry {
   type: string;
   subjects: string[];
   body: string;
+  /** What the envelope's link opens, by the handle in it: read only by the console, for the person it was for. */
+  opens?: Opens;
+  handle?: string | null;
 }
 
 /**
@@ -63,11 +75,14 @@ export interface OutboxEntry {
  * call wrote it.
  */
 export async function enqueue(tx: TenantClient, entry: OutboxEntry, now = new Date()): Promise<boolean> {
+  const opens = entry.opens ?? {};
   const { rowCount } = await tx.query(
-    `INSERT INTO relay_outbox (id, relay_id, link_id, company_id, type, subjects, body, next_at, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+    `INSERT INTO relay_outbox (id, relay_id, link_id, company_id, type, subjects, body, next_at, created_at,
+                               handle, room_id, thread_of, item_id, task_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (id) DO NOTHING`,
-    [entry.id, entry.relayId, entry.linkId, entry.companyId, entry.type, entry.subjects, entry.body, now]);
+    [entry.id, entry.relayId, entry.linkId, entry.companyId, entry.type, entry.subjects, entry.body, now,
+      entry.handle ?? null, opens.roomId ?? null, opens.threadOf ?? null, opens.itemId ?? null, opens.taskId ?? null]);
   return rowCount === 1;
 }
 
@@ -125,12 +140,46 @@ const REMOVED_WORDS = `(o.type = 'room_activity' OR o.type = 'meeting_soon') AND
                       WHERE m.company_id = o.company_id AND m.id = substr(s.subject, 9)::uuid AND m.deleted_at IS NULL))`;
 
 /**
+ * A person's notices about a room, owed now, that the person may no longer
+ * see the room of: taken out of a private room or a direct one since the
+ * notice was written (STATUS section 2.216). The same question
+ * `app.room_visible_to` asks, put on the control plane, which names no
+ * reader. Dropped as the loop is about to send, with their tokens, so a
+ * notice owed when its person left, or put back from the dead letters days
+ * later, tells them nothing more about the room.
+ */
+async function dropUnseen(tx: TenantClient, relayId: string, now: Date): Promise<number> {
+  const { rows } = await tx.query<{ body: string }>(
+    `DELETE FROM relay_outbox o USING relay_links l
+      WHERE o.relay_id = $1 AND o.status = 'pending' AND o.next_at <= $2
+        AND (o.type = 'room_activity' OR o.type = 'meeting_soon') AND o.room_id IS NOT NULL
+        AND l.id = o.link_id
+        AND NOT EXISTS (
+          SELECT 1 FROM rooms r
+           WHERE r.company_id = o.company_id AND r.id = o.room_id
+             AND (r.kind IN ('company', 'division')
+                  OR (r.kind = 'topic' AND (NOT r.private OR l.principal = 'owner'))
+                  OR EXISTS (SELECT 1 FROM room_access a
+                              WHERE a.company_id = o.company_id AND a.room_id = o.room_id AND a.principal = l.principal)))
+      RETURNING o.body`,
+    [relayId, now]);
+  const tokens = rows.flatMap((row) => ((JSON.parse(row.body) as { offers?: Array<{ token: string }> }).offers ?? [])
+    .map((offer) => tokenHash(String(offer.token))));
+  if (tokens.length > 0) {
+    await tx.query('UPDATE relay_offers SET voided_at = $2 WHERE token_hash = ANY($1::text[]) AND voided_at IS NULL', [tokens, now]);
+  }
+  for (let one = 0; one < rows.length; one += 1) countDelivery('gone');
+  return rows.length;
+}
+
+/**
  * Sends what is due to one relay, signed now with the keys given. A row
  * whose link has an earlier row still owed and not yet due, or one being sent
  * by this process or another, waits behind it, and one link's rows go one at
  * a time, so a relay sees one person's envelopes in the order they were
  * made; up to four links are sent at once. A notice of words removed since
- * is never taken.
+ * is never taken, and one about a room its person may no longer see is
+ * dropped.
  */
 export async function sendDue(
   relay: Destination,
@@ -140,7 +189,16 @@ export async function sendDue(
   const now = options.now ?? new Date();
   const send = options.fetch ?? globalThis.fetch;
   const report: SendReport = { delivered: 0, failed: 0, dead: 0, gone: false };
-  const claimed = await withControlPlane(async (tx) => (await tx.query<Claimed>(
+  const claimed = await withControlPlane(async (tx) => {
+    // The relay's row first, as every change of its outbox takes it. It is
+    // also what keeps the order across replicas: a second claim waits here
+    // until the first has committed, and its own statement then sees the
+    // first one's rows as being sent and holds each link's later rows behind
+    // them, where without it both would read them as still owed and due
+    // (STATUS section 2.216).
+    await tx.query('SELECT 1 FROM relays WHERE id = $1 FOR UPDATE', [relay.id]);
+    await dropUnseen(tx, relay.id, now);
+    return (await tx.query<Claimed>(
     `UPDATE relay_outbox SET status = 'sending', claimed_at = $2
       WHERE id IN (
         SELECT o.id FROM relay_outbox o
@@ -155,7 +213,8 @@ export async function sendDue(
          LIMIT $3
            FOR UPDATE SKIP LOCKED)
       RETURNING id, link_id, body, attempts, created_at`,
-    [relay.id, now, CLAIM_BATCH])).rows);
+    [relay.id, now, CLAIM_BATCH])).rows;
+  });
   if (claimed.length === 0) return report;
 
   // One queue per link, in the order the rows were made.

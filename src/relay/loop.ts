@@ -40,7 +40,12 @@ const PULL_MOST = 100;
  * a relay streaming without end could make the deployment hold.
  */
 const PULL_MOST_BYTES = 8 * 1024 * 1024;
-/** How long an offer spent, void or past its time is kept, so a late press is told why rather than that it is unknown. */
+/**
+ * How long an offer spent, void or past its time is kept, so a late press is
+ * told why rather than that it is unknown: counted from when it was spent,
+ * voided or expired, whichever was first. An offer spent before its spending
+ * was kept (STATUS section 2.216) counts from its expiry.
+ */
 const SPENT_OFFER_DAYS = 4;
 /** How long a receipt, a refusal, a dead letter or a delivered envelope is kept. */
 export const KEPT_DAYS = 14;
@@ -235,7 +240,7 @@ export async function relayBookkeeping(now = new Date()): Promise<{ receipts: nu
     const offers = (await tx.query(
       `DELETE FROM relay_offers WHERE token_hash IN (
          SELECT token_hash FROM relay_offers
-          WHERE coalesce(voided_at, CASE WHEN uses >= max_uses OR expires_at <= $1 THEN least(expires_at, $1) END)
+          WHERE least(voided_at, spent_at, CASE WHEN uses >= max_uses OR expires_at <= $1 THEN expires_at END)
                 < $1::timestamptz - make_interval(days => $2)
             FOR UPDATE SKIP LOCKED)`, [now, SPENT_OFFER_DAYS])).rowCount ?? 0;
     const codes = (await tx.query(

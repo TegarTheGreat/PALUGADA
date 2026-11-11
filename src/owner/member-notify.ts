@@ -638,8 +638,10 @@ async function deliver(companyId: string, row: DueRow, context: Context): Promis
     await chat.deliverPeopleNotice!({ companyId, text: said.summary.text, url: link, language });
     return { settled: 'sent', day: today };
   }
+  const { roomId, threadOf, itemId, taskId } = subject.target;
   const sent = await relayPeopleNotice(row.channel.slice('relay:'.length), {
     id: row.id, companyId, principal: row.principal, type: subject.type, subjects: subject.subjects, language, link, said,
+    opens: { roomId, threadOf, itemId, taskId },
     ...(subject.room ? { room: subject.room } : {}), ...(subject.item ? { item: subject.item } : {}),
     ...(subject.words ? { words: subject.words } : {}),
   }, context.now);
@@ -744,7 +746,12 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
       text: sentence,
       data: {
         ...summary.data, summary: redactor.redact(item.action_summary),
-        ...(question ? { question: redactor.redact(item.question ?? ''), options: item.options ?? [], ...(item.asker ? { asker: item.asker } : {}) } : {}),
+        ...(question ? {
+          question: redactor.redact(item.question ?? ''),
+          // The run's choices are its words too, redacted as its question is.
+          options: (item.options ?? []).map((option) => redactor.redact(option)),
+          ...(item.asker ? { asker: item.asker } : {}),
+        } : {}),
         ...(item.expires_at ? { expiresAt: item.expires_at.toISOString() } : {}),
       },
     };

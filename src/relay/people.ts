@@ -29,7 +29,7 @@ import { roomOfferLabel } from '../owner/people-said.ts';
 import { companyOf, deploymentOf } from './channel.ts';
 import { envelopeBody, envelopeId, lowerShare, shareAtLeast, type Share } from './envelope.ts';
 import { mintOffers, offerExpiry, tokenHash, type Offer } from './offers.ts';
-import { enqueue } from './outbox.ts';
+import { enqueue, type Opens } from './outbox.ts';
 import { covers, relayRow } from './relays.ts';
 
 /** How long a room's tokens may be used. */
@@ -39,6 +39,8 @@ export const REPLY_USES = 20;
 export const MARK_USES = 5;
 /** How many removed messages one pass of the notify stage retracts; the rest wait for the next. */
 const RETRACT_BATCH = 200;
+/** What of an envelope says only where it went, and nothing of what it told. */
+const ADDRESS_FIELDS = ['v', 'id', 'type', 'at', 'deployment', 'relay', 'to'] as const;
 
 /** What a share level of a notice says. */
 export interface Said {
@@ -56,6 +58,8 @@ export interface PeopleNotice {
   subjects: string[];
   language: string;
   link: string | null;
+  /** What the notice opens: kept beside its envelope, and the room asked about again as it is sent. */
+  opens?: Opens;
   said: Record<Share, Said>;
   /**
    * A notice about words: the room, thread and position its tokens are bound
@@ -130,6 +134,7 @@ export async function relayPeopleNotice(relayId: string, notice: PeopleNotice, n
     const said = notice.said[share];
     await enqueue(tx, {
       id, relayId: relay.id, linkId: link.id, companyId: notice.companyId, type: notice.type, subjects: notice.subjects,
+      opens: notice.opens ?? {},
       body: envelopeBody({
         v: 1, id, type: notice.type, at: now.toISOString(), deployment, relay: relay.id,
         to: { recipient: link.recipient_id }, company: await companyOf(tx, relay, notice.companyId, share),
@@ -201,6 +206,16 @@ export async function retractMessages(companyId: string, messageIds: readonly st
     }
     const unsent = rows.filter((row) => row.status === 'pending' || row.status === 'dead');
     if (unsent.length > 0) await tx.query('DELETE FROM relay_outbox WHERE id = ANY($1::uuid[])', [unsent.map((row) => row.id)]);
+    // What was sent, or is on its way, keeps only what addresses it: the
+    // words leave the deployment's own outbox at once, as they leave the
+    // room (F19.4), rather than after the fortnight its rows are kept
+    // (STATUS section 2.216). Its id and its subjects stay, which are what
+    // the retraction below names and what the next pass looks for.
+    for (const row of rows.filter((one) => one.status === 'delivered' || one.status === 'sending')) {
+      const envelope = JSON.parse(row.body) as Record<string, unknown>;
+      const addressed = envelopeBody(Object.fromEntries(ADDRESS_FIELDS.filter((field) => field in envelope).map((field) => [field, envelope[field]])));
+      if (addressed !== row.body) await tx.query('UPDATE relay_outbox SET body = $2 WHERE id = $1', [row.id, addressed]);
+    }
     // What a relay may already hold: sent, on its way, or tried and refused
     // by a relay that may have read it before it answered.
     const held = new Map<string, { relayId: string; linkId: string; refs: string[] }>();

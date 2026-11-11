@@ -37,6 +37,7 @@ import { removeCompanyFiles } from '../capabilities/files.ts';
 import { erasePeopleFiles, peopleFolderOf } from '../workspace/files.ts';
 import type { CharterRepository } from './charter-repository.ts';
 import { browserSecretName } from '../browser/cookies.ts';
+import { forgetCompanyAtRelays } from '../relay/relays.ts';
 
 /** How long a closing company waits, in days: at least a week to notice a mistake, at most a quarter. */
 export const CLOSING_GRACE_DAYS = { least: 7, most: 90 } as const;
@@ -176,6 +177,10 @@ export async function eraseDueCompanies(disk: ErasureDisk = {}): Promise<Erasure
     // the loop, it was every later company's too, on every tick.
     let one: Erasure | null;
     try {
+      // Every relay that may hold anything of it is told to forget it first
+      // (STATUS section 2.216): the erasure's cascade leaves nothing to tell
+      // them from.
+      await forgetCompanyAtRelays(id);
       one = await eraseCompany(id);
     } catch (error) {
       pass.failed.push(await recordFailure(id, name, error));

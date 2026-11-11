@@ -11,7 +11,9 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPrivateKey, generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
@@ -289,4 +291,26 @@ test('the reference relay takes a new key only from a rotation that the key it p
     await relay.close();
     await api.close();
   }
+});
+
+/** The reference relay's command line, run as a person runs it, against a port nothing listens on. */
+function relayCommand(...args: string[]): Promise<{ code: number; stderr: string }> {
+  const script = fileURLToPath(new URL('../../scripts/relay-reference.ts', import.meta.url));
+  return new Promise((resolve) => {
+    execFile(process.execPath, [script, ...args, '--port', '1'], { timeout: 30_000 }, (error, _stdout, stderr) => {
+      resolve({ code: error ? Number((error as { code?: number }).code ?? 1) : 0, stderr: String(stderr) });
+    });
+  });
+}
+
+test("the reference relay's commands say how they are used when the hours to mute are not a number of hours", async () => {
+  for (const hours of ['soon', '-2', '721']) {
+    const muted = await relayCommand('mute', 'pt_token', hours);
+    assert.equal(muted.code, 1);
+    assert.match(muted.stderr, /^relay: usage: .*mute <token> \[hours\]/, `mute for ${hours}`);
+  }
+  // A reply's words are not hours: it reaches the relay's port, which here nobody answers.
+  const replied = await relayCommand('reply', 'pt_token', 'see', 'you');
+  assert.equal(replied.code, 1);
+  assert.doesNotMatch(replied.stderr, /Invalid time value|usage/);
 });

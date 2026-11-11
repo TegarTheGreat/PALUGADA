@@ -67,6 +67,14 @@ GRANT DELETE ON people_notices TO palugada_app;
 -- workers plan one company one at a time, and every position up to the clock
 -- is committed and seen when it reads.
 ALTER TABLE room_clock ADD COLUMN notices_through bigint NOT NULL DEFAULT 0 CHECK (notices_through >= 0);
+-- A deployment whose rooms have already talked starts at the present: from
+-- 0, the first pass would plan a notice of everything ever said, to a chat
+-- and to phones linked before today. Every company's clock is written as the
+-- table's owner, which forced row security refuses without a tenant: lifted
+-- for this statement, and put back before the transaction ends (as 0133).
+ALTER TABLE room_clock NO FORCE ROW LEVEL SECURITY;
+UPDATE room_clock SET notices_through = position;
+ALTER TABLE room_clock FORCE ROW LEVEL SECURITY;
 
 -- The cursor, taken with the clock's lock, for the delivery reader of the
 -- transaction's own company.
@@ -97,3 +105,8 @@ BEGIN
 END $$;
 REVOKE EXECUTE ON FUNCTION app.take_notice_cursor(uuid), app.advance_notice_cursor(uuid, bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.take_notice_cursor(uuid), app.advance_notice_cursor(uuid, bigint) TO palugada_app;
+
+-- A person's notices in a relay's outbox, by company: the notify stage looks
+-- through them each pass for words removed since they were owed, and the
+-- relay loop takes none of those to send (STATUS section 2.213).
+CREATE INDEX relay_outbox_room_activity ON relay_outbox (company_id) WHERE type = 'room_activity';

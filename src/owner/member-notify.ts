@@ -229,8 +229,8 @@ export async function planNotices(
   };
   const purge = purgeDue(companyId, now);
 
-  return withDelivery(companyId, async (tx) => {
-    let planned = 0;
+  let planned = await withDelivery(companyId, async (tx) => {
+    let made = 0;
     // A look without the lock first: a company whose rooms are quiet since
     // the last pass takes no lock at all, and every room write goes on.
     const { rows: [peek] } = await tx.query<{ position: string; through: string }>(
@@ -303,7 +303,7 @@ export async function planNotices(
           const { after, day } = timing(principal, person.prefs);
           for (const { channel, since } of person.channels) {
             if (since !== null && message.created_at < since) continue;
-            planned += await owe1(tx, {
+            made += await owe1(tx, {
               companyId, principal, channel, roomId: message.room_id, reason, messageId: message.ref,
               position: Number(message.position), after, day, now,
             });
@@ -312,13 +312,20 @@ export async function planNotices(
       }
     }
 
-    const seats = [...audience.people.keys()].filter((principal) => principal !== 'owner');
-    if (seats.length > 0) planned += await planWork(tx, companyId, audience, seats, timing, now);
-
     if (through !== null) await tx.query('SELECT app.advance_notice_cursor($1, $2)', [companyId, through]);
-    if (purge) await tx.query(`DELETE FROM people_notices WHERE created_at < $1::timestamptz - make_interval(days => ${NOTICE_DAYS})`, [now]);
-    return { planned };
+    return made;
   });
+
+  // What agent work tells a seat, in a transaction of its own: its reads of
+  // the inbox and the tasks need no clock, and every room write in the
+  // company waits while the clock is held. Only a notice it writes takes it.
+  const seats = [...audience.people.keys()].filter((principal) => principal !== 'owner');
+  if (seats.length > 0) planned += await withDelivery(companyId, (tx) => planWork(tx, companyId, audience, seats, timing, now));
+  if (purge) {
+    await withDelivery(companyId, (tx) => tx.query(
+      `DELETE FROM people_notices WHERE created_at < $1::timestamptz - make_interval(days => ${NOTICE_DAYS})`, [now]));
+  }
+  return { planned };
 }
 
 /** When this process last purged each company's notices: once an hour is enough for bookkeeping. */
@@ -336,19 +343,24 @@ function purgeDue(companyId: string, now: Date): boolean {
  * One person's notice about words in a room, on one channel: one more on
  * the room's notice of the last ten minutes, or a notice of its own. Answers
  * 1 when a notice was made. A window whose notice was read or found gone
- * before it went is closed: what comes after it is told afresh.
+ * before it went is closed: what comes after it is told afresh. A heavier
+ * reason than the window's opens a notice of its own: a mention after a
+ * direct message or a reply is told as a mention, in a room muted since the
+ * window opened too, rather than counted on a notice that may have gone.
  */
 async function owe1(tx: TenantClient, input: {
   companyId: string; principal: string; channel: string; roomId: string; reason: RoomReason; messageId: string;
   position: number; after: Date; day: string; now: Date;
 }): Promise<number> {
-  const { rows: [open] } = await tx.query<{ id: string }>(
-    `SELECT id FROM people_notices
+  // The window's newest notice, which is its heaviest: a lighter or equal
+  // reason never opens one.
+  const { rows: [open] } = await tx.query<{ id: string; reason: RoomReason }>(
+    `SELECT id, reason FROM people_notices
       WHERE principal = $1 AND channel = $2 AND room_id = $3 AND created_at > $4::timestamptz - make_interval(mins => ${WINDOW_MINUTES})
         AND (settled_as IS NULL OR settled_as IN ('sent', 'capped'))
-      ORDER BY created_at DESC LIMIT 1`,
+      ORDER BY created_at DESC, position DESC LIMIT 1`,
     [input.principal, input.channel, input.roomId, input.now]);
-  if (open) {
+  if (open && WEIGHT[input.reason] <= WEIGHT[open.reason]) {
     await tx.query(
       'UPDATE people_notices SET count = LEAST(count + 1, 32767), position = GREATEST(position, $2) WHERE id = $1',
       [open.id, input.position]);
@@ -591,6 +603,9 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
       [id, as.principal, row.position]);
     // Not there for them: a room they were taken out of, or never could see.
     if (!message) return { state: 'gone' };
+    // A window's first message deleted: alone, there is nothing to tell; with
+    // others after it, they are told as how many, and the notice names no
+    // message, so nothing waits on the one that went.
     if (message.deleted && row.count === 1) return { state: 'gone' };
     const position = Number(row.position);
     const read = row.reason === 'direct' ? Number(message.read_position ?? 0) >= position : !message.unseen;
@@ -606,14 +621,14 @@ async function readSubject(tx: TenantClient, row: DueRow, as: Person, language: 
       data: { reasons, count: row.count, room, authors: [{ name: author.principal === 'owner' ? null : author.name, handle: author.handle }] },
     };
     return {
-      state: 'ok', type: 'room_activity', subjects: [row.subject],
+      state: 'ok', type: 'room_activity', subjects: message.deleted ? [] : [row.subject],
       said: {
         signal: { text: signal.text, data: { reasons, count: row.count } },
         summary,
         content: excerpt === null ? summary : { text: `${sentence}\n${excerpt}`, data: { ...summary.data, excerpt } },
       },
       target: { companyId: context.directory.companyId, roomId: message.room_id, threadOf: message.thread_of },
-      room: { roomId: message.room_id, threadOf: message.thread_of, position, messageId: id },
+      room: { roomId: message.room_id, threadOf: message.thread_of, position, messageId: message.deleted ? null : id },
     };
   }
 

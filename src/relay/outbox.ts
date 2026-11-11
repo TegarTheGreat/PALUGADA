@@ -109,11 +109,27 @@ export interface SendReport {
 }
 
 /**
+ * A person's notice whose message was deleted or retention took it since it
+ * was owed (STATUS section 2.213). It is not taken to send, whatever brought
+ * it here: owed when the delete committed and before its retraction ran, put
+ * back after a send that failed, or tried again from the dead letters. The
+ * notify stage's next pass drops it and voids its tokens
+ * (`retractRemoved`, src/relay/people.ts); until then it waits unsent, and
+ * holds back nothing behind it.
+ */
+const REMOVED_WORDS = `o.type = 'room_activity' AND EXISTS (
+  SELECT 1 FROM unnest(o.subjects) AS s(subject)
+   WHERE s.subject LIKE 'message:%'
+     AND NOT EXISTS (SELECT 1 FROM room_messages m
+                      WHERE m.company_id = o.company_id AND m.id = substr(s.subject, 9)::uuid AND m.deleted_at IS NULL))`;
+
+/**
  * Sends what is due to one relay, signed now with the keys given. A row
  * whose link has an earlier row still owed and not yet due, or one being sent
  * by this process or another, waits behind it, and one link's rows go one at
  * a time, so a relay sees one person's envelopes in the order they were
- * made; up to four links are sent at once.
+ * made; up to four links are sent at once. A notice of words removed since
+ * is never taken.
  */
 export async function sendDue(
   relay: Destination,
@@ -133,6 +149,7 @@ export async function sendDue(
               WHERE e.relay_id = o.relay_id AND e.link_id IS NOT DISTINCT FROM o.link_id
                 AND e.created_at < o.created_at
                 AND (e.status = 'sending' OR (e.status = 'pending' AND e.next_at > $2)))
+           AND NOT (${REMOVED_WORDS})
          ORDER BY o.created_at, o.id
          LIMIT $3
            FOR UPDATE SKIP LOCKED)

@@ -81,6 +81,7 @@ import {
   type NotifiableItem,
 } from './owner/notify.ts';
 import { dispatchPeopleNotices, noticeLinks, planNotices } from './owner/member-notify.ts';
+import { retractRemoved } from './relay/people.ts';
 import { buildDailyDigest } from './reporting/digest.ts';
 import { renderDailyDigest } from './owner/digest-said.ts';
 import { releaseStaleHolds } from './owner/conversation-money.ts';
@@ -1292,8 +1293,11 @@ export class Worker {
       // is the same failure if it throws, nobody hears from the platform, and
       // it comes after the rooms' cards were drawn so a card and its notice
       // agree. The owner's chats carry the owner's, when the owner chose to
-      // hear people at all.
+      // hear people at all. First, what a relay holds of words removed with
+      // nothing told -- a retention purge, a delete whose own retraction
+      // never ran -- is taken back.
       const peopleLink = noticeLinks(this.#options.ownerTaskLinkFor);
+      await retractRemoved(company, now);
       await planNotices(company, { now, chats: channels });
       report.notified += (await dispatchPeopleNotices(company, {
         now, chats: channels, ...(peopleLink ? { linkFor: peopleLink } : {}),

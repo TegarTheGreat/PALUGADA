@@ -60,7 +60,7 @@ function posted(handle: (viewer: Viewer, context: RouteContext) => Promise<unkno
 }
 
 /** Every route of the rooms. */
-export function roomRoutes(_kit: RouteKit): Route[] {
+export function roomRoutes(kit: RouteKit): Route[] {
   return [
     {
       // What waits in each company the person may see: the badge's numbers.
@@ -77,9 +77,11 @@ export function roomRoutes(_kit: RouteKit): Route[] {
     },
     {
       // The company's people, for the mention picker and a new conversation.
+      // The owner's chat is the deployment's Telegram, which carries the
+      // owner's people's notices beside a phone.
       method: 'GET',
       pattern: '/api/companies/:companyId/people',
-      handle: async (context) => ({ people: await peopleOf(viewerOf(context)) }),
+      handle: async (context) => ({ people: await peopleOf(viewerOf(context), { ownerChat: kit.options.telegram !== undefined }) }),
     },
     {
       method: 'GET',

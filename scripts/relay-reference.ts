@@ -463,17 +463,20 @@ async function main(args: string[]): Promise<void> {
     return;
   }
   const positional = rest.filter((one, index) => !one.startsWith('--') && !rest[index - 1]?.startsWith('--'));
-  const paths: Record<string, [string, Record<string, unknown>]> = {
-    link: ['/local/link', { code: positional[0] }],
-    press: ['/local/press', { token: positional[0], ...(positional[1] !== undefined ? { answer: positional.slice(1).join(' ') } : {}) }],
-    reply: ['/local/reply', { token: positional[0], text: positional.slice(1).join(' ') }],
-    read: ['/local/read', { token: positional[0] }],
-    mute: ['/local/mute', { token: positional[0], until: new Date(Date.now() + Number(positional[1] ?? 8) * 3_600_000).toISOString() }],
+  const usage = 'usage: serve --deployment-fingerprint <fingerprint> | link <code> | press <token> [answer] | reply <token> <text> | read <token> | mute <token> [hours]';
+  // A mute's hours are read only for a mute, and only as a number of hours
+  // PALUGADA takes: more than none, and at most thirty days.
+  const hours = command === 'mute' ? Number(positional[1] ?? 8) : 0;
+  if (command === 'mute' && !(Number.isFinite(hours) && hours > 0 && hours <= 720)) throw new Error(usage);
+  const paths: Record<string, () => [string, Record<string, unknown>]> = {
+    link: () => ['/local/link', { code: positional[0] }],
+    press: () => ['/local/press', { token: positional[0], ...(positional[1] !== undefined ? { answer: positional.slice(1).join(' ') } : {}) }],
+    reply: () => ['/local/reply', { token: positional[0], text: positional.slice(1).join(' ') }],
+    read: () => ['/local/read', { token: positional[0] }],
+    mute: () => ['/local/mute', { token: positional[0], until: new Date(Date.now() + hours * 3_600_000).toISOString() }],
   };
-  const chosen = command ? paths[command] : undefined;
-  if (!chosen || !positional[0]) {
-    throw new Error('usage: serve --deployment-fingerprint <fingerprint> | link <code> | press <token> [answer] | reply <token> <text> | read <token> | mute <token> [hours]');
-  }
+  const chosen = command && Object.hasOwn(paths, command) ? paths[command]!() : undefined;
+  if (!chosen || !positional[0]) throw new Error(usage);
   const response = await fetch(`http://127.0.0.1:${port}${chosen[0]}`, { method: 'POST', body: JSON.stringify(chosen[1]) });
   process.stdout.write(`${await response.text()}\n`);
 }

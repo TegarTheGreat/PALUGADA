@@ -18,8 +18,9 @@
  * owner's link without a device key is told and offered nothing, as for the
  * owner's items: a relay alone never writes in the owner's name.
  *
- * A message deleted is retracted: what was not sent is not sent, its tokens
- * are void, and a relay that had it is told to drop it.
+ * A message deleted, or taken by retention, is retracted: what was not sent
+ * is not sent, its tokens are void, and a relay that had it is told to drop
+ * it.
  */
 import { randomBytes } from 'node:crypto';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
@@ -35,6 +36,8 @@ export const ROOM_OFFER_DAYS = 7;
 /** How many replies one notice's token carries, and how many read marks or mutes. */
 export const REPLY_USES = 20;
 export const MARK_USES = 5;
+/** How many removed messages one pass of the notify stage retracts; the rest wait for the next. */
+const RETRACT_BATCH = 200;
 
 /** What a share level of a notice says. */
 export interface Said {
@@ -53,8 +56,12 @@ export interface PeopleNotice {
   language: string;
   link: string | null;
   said: Record<Share, Said>;
-  /** A notice about words: the room, thread and position its tokens are bound to, and the message it names. */
-  room?: { roomId: string; threadOf: string | null; position: number; messageId: string };
+  /**
+   * A notice about words: the room, thread and position its tokens are bound
+   * to, and the message it names -- none when the window's first message was
+   * deleted, and the notice carries nothing of any one message.
+   */
+  room?: { roomId: string; threadOf: string | null; position: number; messageId: string | null };
   /** A question or an approval, and whether the seat may answer or decide it now. */
   item?: { id: string; question: boolean; options: readonly string[] | null; tier: number | null; expiresAt: Date | null; mayAct: boolean };
 }
@@ -82,7 +89,7 @@ export async function relayPeopleNotice(relayId: string, notice: PeopleNotice, n
         WHERE relay_id = $1 AND principal = $2 AND status = 'active' AND (company_id IS NULL OR company_id = $3)`,
       [relayId, notice.principal, notice.companyId]);
     if (!link) return null;
-    if (notice.room) {
+    if (notice.room?.messageId) {
       // Held against a delete on its way: a delete waits for this to commit
       // and then retracts what it wrote, or commits first and this sees it.
       // Only whether it was deleted is read here, never what it said.
@@ -156,8 +163,11 @@ async function roomOffers(tx: TenantClient, input: {
  * link by link, to drop what it holds (`room_activity_retracted`, which the
  * protocol says a relay MUST honour). Answers how many envelopes were
  * dropped and how many retractions were owed. Called once a delete has
- * committed, and the one a purge of old messages calls for the same
- * (STATUS section 2.212).
+ * committed, and by `retractRemoved` for what no call retracted: the
+ * messages retention takes (STATUS section 2.212), and a delete whose own
+ * call never ran. A notice on its way as this runs is retracted too, and is
+ * never sent again if its send fails (`sendDue` takes no notice of removed
+ * words).
  */
 export async function retractMessages(companyId: string, messageIds: readonly string[], now = new Date()): Promise<{ dropped: number; retracted: number }> {
   if (messageIds.length === 0) return { dropped: 0, retracted: 0 };
@@ -215,6 +225,31 @@ export async function retractMessages(companyId: string, messageIds: readonly st
 }
 
 /**
+ * What no call retracted: words removed with nothing told of it. A purge of
+ * old messages calls nothing (STATUS section 2.212), and a delete's own call
+ * runs after its transaction has committed, so a process that stops between
+ * the two, or a database that refuses the second, leaves its retraction
+ * unmade. The worker's notify stage looks each pass for a person's notice
+ * whose message is deleted or gone and that is still owed, or that a relay
+ * may hold with no retraction sent on its link, and retracts those messages
+ * as a delete would. Answers what `retractMessages` did.
+ */
+export async function retractRemoved(companyId: string, now = new Date()): Promise<{ dropped: number; retracted: number }> {
+  const { rows } = await withControlPlane((tx) => tx.query<{ id: string }>(
+    `SELECT DISTINCT substr(s.subject, 9) AS id
+       FROM relay_outbox o CROSS JOIN LATERAL unnest(o.subjects) AS s(subject)
+      WHERE o.company_id = $1 AND o.type = 'room_activity' AND o.link_id IS NOT NULL AND s.subject LIKE 'message:%'
+        AND NOT EXISTS (SELECT 1 FROM room_messages m
+                         WHERE m.company_id = $1 AND m.id = substr(s.subject, 9)::uuid AND m.deleted_at IS NULL)
+        AND (o.status IN ('pending', 'dead') OR NOT EXISTS (
+              SELECT 1 FROM relay_outbox x
+               WHERE x.link_id = o.link_id AND x.type = 'room_activity_retracted' AND x.subjects @> ARRAY[s.subject]))
+      LIMIT ${RETRACT_BATCH}`,
+    [companyId]));
+  return retractMessages(companyId, rows.map((row) => row.id), now);
+}
+
+/**
  * A seat's kind changed: every offer it was sent to answer or decide is void
  * at once, in the caller's transaction, so an approver made a viewer presses
  * nothing it was offered before. A press is read again against the seat in
@@ -234,15 +269,25 @@ export async function voidSeatOffers(tx: TenantClient, principal: string, now = 
 }
 
 /**
- * Who of a company is told outside PALUGADA: everyone with a phone linked
- * through a paired relay that hears about the company. The mention picker
- * marks the rest, so nobody is surprised that a mention reached no phone.
+ * Who of a company is told outside PALUGADA: a seat with a phone linked
+ * through a paired relay that hears about the company; the owner only when
+ * they chose to hear people (F10.5), and then through such a phone or a chat
+ * that takes people's notices (`ownerChat`, the owner's Telegram). The
+ * mention picker marks the rest, so nobody is surprised that a mention
+ * reached no phone, and nobody is shown as told who will hear nothing.
  */
-export async function linkedPeople(companyId: string): Promise<Set<string>> {
-  const { rows } = await withControlPlane((tx) => tx.query<{ principal: string }>(
-    `SELECT DISTINCT l.principal FROM relay_links l JOIN relays r ON r.id = l.relay_id
-      WHERE l.status = 'active' AND r.status = 'paired' AND (r.all_companies OR $1 = ANY(r.companies))
-        AND (l.company_id IS NULL OR l.company_id = $1)`,
-    [companyId]));
-  return new Set(rows.map((row) => row.principal));
+export async function linkedPeople(companyId: string, options: { ownerChat: boolean }): Promise<Set<string>> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ principal: string }>(
+      `SELECT DISTINCT l.principal FROM relay_links l JOIN relays r ON r.id = l.relay_id
+        WHERE l.status = 'active' AND r.status = 'paired' AND (r.all_companies OR $1 = ANY(r.companies))
+          AND (l.company_id IS NULL OR l.company_id = $1)`,
+      [companyId]);
+    const told = new Set(rows.map((row) => row.principal));
+    const { rows: [owner] } = await tx.query<{ hears: boolean }>(
+      "SELECT owner_hears_people AS hears FROM principal_prefs WHERE principal = 'owner'");
+    if (owner?.hears === true && options.ownerChat) told.add('owner');
+    else if (owner?.hears !== true) told.delete('owner');
+    return told;
+  });
 }

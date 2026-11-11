@@ -200,8 +200,10 @@ export async function editMessage(viewer: Viewer, roomId: string, messageId: str
  * A message taken back by its author, or removed by the owner: a tombstone
  * with none of its words (0150). Its words are then withdrawn from every
  * relay a notice of it went to, and never sent where one had not gone yet
- * (STATUS section 2.213): after the delete commits, and again on a delete
- * pressed again, so a retraction a failure cut short is made by the retry.
+ * (STATUS section 2.213), once the delete has committed. The delete stands
+ * whatever that answers: a notice of removed words is never sent in any
+ * case, and the notify stage's next pass makes a retraction this one could
+ * not (`retractRemoved`).
  */
 export async function deleteMessage(viewer: Viewer, roomId: string, messageId: string): Promise<MessageView> {
   const directory = await directoryOf(viewer.companyId);
@@ -215,7 +217,12 @@ export async function deleteMessage(viewer: Viewer, roomId: string, messageId: s
     if (!message.deleted_at) await tx.query('UPDATE room_messages SET deleted_at = now() WHERE id = $1', [messageId]);
     return shown(tx, viewer, directory, messageId);
   });
-  await retractMessages(viewer.companyId, [messageId]);
+  try {
+    await retractMessages(viewer.companyId, [messageId]);
+  } catch {
+    // Not the delete's failure, which has committed: the person is told it
+    // is gone, as it is, and the worker retracts it on its next pass.
+  }
   return removed;
 }
 

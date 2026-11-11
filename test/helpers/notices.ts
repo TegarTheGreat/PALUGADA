@@ -7,6 +7,7 @@
 import { withControlPlane } from '../../src/db/tenant.ts';
 import type { OwnerChannel } from '../../src/owner/notify.ts';
 import { dispatchPeopleNotices, planNotices, type NoticeTarget } from '../../src/owner/member-notify.ts';
+import { retractRemoved } from '../../src/relay/people.ts';
 import type { MasterKey } from '../../src/settings/store.ts';
 import type { FakeRelay, Received } from './fake-relay.ts';
 import { sendOutbox, type Linked } from './relay.ts';
@@ -29,6 +30,7 @@ export async function tell(
   options: { now?: Date; chats?: readonly OwnerChannel[]; send?: boolean } = {},
 ): Promise<{ planned: number; sent: number }> {
   const now = options.now ?? new Date();
+  await retractRemoved(companyId, now);
   const planned = await planNotices(companyId, { now, ...(options.chats ? { chats: options.chats } : {}) });
   const told = await dispatchPeopleNotices(companyId, { now, linkFor, ...(options.chats ? { chats: options.chats } : {}) });
   if (options.send !== false) await sendOutbox(master, now);

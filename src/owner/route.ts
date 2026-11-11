@@ -194,6 +194,22 @@ export class StreamRegistry {
     return this.#held.size;
   }
 
+  /**
+   * The sessions behind the streams open now, each once for each company it
+   * is about, by its token's hash: what the live hub asks after every
+   * twenty-five seconds, so a stream whose session ended where this process
+   * was not told stops (F19.11, STATUS 2.210). A stream of an open route,
+   * which no session opened, is not among them.
+   */
+  sessions(): Array<{ tokenHash: string; principal: string; companyId: string | null }> {
+    const found = new Map<string, { tokenHash: string; principal: string; companyId: string | null }>();
+    for (const held of this.#held.values()) {
+      if (held.tokenHash === null || held.principal === null) continue;
+      found.set(`${held.tokenHash} ${held.companyId}`, { tokenHash: held.tokenHash, principal: held.principal, companyId: held.companyId });
+    }
+    return [...found.values()];
+  }
+
   #end(key: string): number {
     const filed = [...(this.#byKey.get(key) ?? [])];
     for (const stop of filed) this.#stop(stop);
@@ -224,7 +240,7 @@ export interface RoomStreamOpening {
   person: Person;
   /** The owner, or the seat's kind as its session was verified: a change of kind ends the stream. */
   kind: 'owner' | StaffKind;
-  /** The session's bearer token, which the hub verifies again every thirty seconds. Kept in memory only. */
+  /** The session's bearer token, which the hub keeps only as its hash, to ask after the session every twenty-five seconds. */
   token: string;
   /** The last position the console heard (`Last-Event-ID`), or null. */
   lastEventId: string | null;
@@ -282,7 +298,7 @@ export interface RouteKit {
   /** The streams open in this process, which sign-out and revocation end. */
   readonly streams: StreamRegistry;
   /** The live hub (src/workspace/hub.ts), which serves the room stream and tells other processes of ends. */
-  hub: PeopleHub | null;
+  readonly hub: PeopleHub;
 }
 
 /**

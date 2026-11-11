@@ -236,7 +236,6 @@ export function roomRoutes(kit: RouteKit): Route[] {
       pattern: '/api/companies/:companyId/room-stream',
       handle: async (context) => {
         const viewer = viewerOf(context);
-        if (!kit.hub) throw new PalugadaError('stream.too_many', 'this process serves no room stream', {});
         const last = context.request.headers['last-event-id'];
         return kit.hub.stream({
           companyId: viewer.companyId,

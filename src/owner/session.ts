@@ -139,21 +139,24 @@ export class OwnerSessions {
    */
   async verify(token: string | undefined): Promise<OwnerSession | null> {
     if (!token) return null;
-    return (await this.verifyMany([token])).get(token) ?? null;
+    const hash = hashToken(token);
+    const live = (await this.liveByHash([hash])).get(hash);
+    return live ? { token, ...live } : null;
   }
 
   /**
-   * The sessions behind many tokens, in one read: the live hub asks this of
-   * every room stream the owner holds open, every thirty seconds, so a
+   * The live sessions among these token hashes (SHA-256, hex, as
+   * `owner_sessions` keeps them), in one read, by hash: the live hub asks this
+   * of every stream the owner holds open, every twenty-five seconds, from the
+   * hashes its stream registry files them under, so it keeps no token. A
    * session ended where no process heard of it -- signed out on a replica
    * that went down before it could say so, or a device revoked by hand --
-   * stops hearing the company (F19.11, STATUS section 2.210). A token whose
-   * session is over, or whose device is revoked, is not in the answer.
+   * stops hearing the company (F19.11, STATUS section 2.210). A session that
+   * is over, or whose device is revoked, is not in the answer.
    */
-  async verifyMany(tokens: readonly string[]): Promise<Map<string, OwnerSession>> {
-    const byHash = new Map(tokens.map((token) => [hashToken(token), token]));
-    const found = new Map<string, OwnerSession>();
-    if (byHash.size === 0) return found;
+  async liveByHash(hashes: readonly string[]): Promise<Map<string, Omit<OwnerSession, 'token'>>> {
+    const found = new Map<string, Omit<OwnerSession, 'token'>>();
+    if (hashes.length === 0) return found;
     const { rows } = await withControlPlane((tx) => tx.query<{
       token_hash: string; issued_at: Date; expires_at: Date; proved_at: Date | null; authenticator_id: string; kind: FactorKind; label: string;
     }>(
@@ -164,12 +167,10 @@ export class OwnerSessions {
           AND s.ended_at IS NULL
           AND s.expires_at > $2
           AND a.revoked_at IS NULL`,
-      [[...byHash.keys()], this.#now()],
+      [[...new Set(hashes)], this.#now()],
     ));
     for (const row of rows) {
-      const token = byHash.get(row.token_hash)!;
-      found.set(token, {
-        token,
+      found.set(row.token_hash, {
         factor: { authenticatorId: row.authenticator_id, kind: row.kind, label: row.label },
         issuedAt: row.issued_at,
         expiresAt: row.expires_at,

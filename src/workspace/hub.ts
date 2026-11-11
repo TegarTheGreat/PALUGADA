@@ -26,15 +26,19 @@
  * late. A stream that comes back with the last id it heard is sent what it
  * missed, read as its person so the database applies the same rule, and then
  * what is live, each position once; one whose id the kept feed no longer
- * reaches (the feed is bookkeeping, purged after a fortnight) is told to read
- * everything again.
+ * reaches (the feed is bookkeeping, purged after a fortnight), or that is
+ * ahead of the company's clock, is told to read everything again, and where
+ * to resume from.
  *
- * **Ending.** A stream is the session's that opened it. Signing out, a seat
- * revoked or its kind changed, and a device revoked end the streams in this
- * process at once (`StreamRegistry`), and are told to every other process of
- * the deployment on `palugada_people_end`. Every thirty seconds the hub asks
- * again whether each session it serves is live, all at once, for whatever no
- * process heard of.
+ * **Ending.** A stream is the session's that opened it, `/live`'s as much as
+ * the room stream. Signing out, a seat revoked or its kind changed, and a
+ * device revoked end the streams in this process at once (`StreamRegistry`),
+ * and are told to every other process of the deployment on
+ * `palugada_people_end`, which this process listens to while it holds any
+ * stream. Every twenty-five seconds the hub asks again whether the session
+ * behind each stream of the process is live, all at once and by its token's
+ * hash, for whatever no process heard of: within F19.11's thirty seconds,
+ * the asking included.
  */
 import { AsyncResource } from 'node:async_hooks';
 import pg from 'pg';
@@ -47,16 +51,24 @@ import type { StaffSeats } from '../owner/staff.ts';
 import { databaseNow, eventsAfter } from '../owner/views.ts';
 import type { RoomFrame } from './contract.ts';
 
-/** Streams one person may hold open in one company: five tabs. */
-export const STREAMS_PER_PERSON = 5;
+/**
+ * Streams one person may hold open in one company: five tabs. Over HTTP/1.1
+ * a browser holds six connections to an address, so a refused sixth tab,
+ * which reads on its clocks instead, leaves one for every tab's requests.
+ */
+const STREAMS_PER_PERSON = 5;
 /** Streams one process holds open at most. */
 const STREAMS_PER_PROCESS = 2_000;
 /** The longest a company's rooms go unread while someone listens, when no NOTIFY came. */
 const POLL_MS = 5_000;
 /** How long a NOTIFY waits for others, so a burst of changes is one read. */
 const GATHER_MS = 250;
-/** How often each subscriber's session is asked again. */
-const VERIFY_MS = 30_000;
+/**
+ * How often the session behind each stream is asked again: under thirty
+ * seconds, so a stream whose session ended where nobody was told ends within
+ * F19.11's thirty, the asking included.
+ */
+const VERIFY_MS = 25_000;
 /** How often the journal is read for the work's frames, as `/live` reads it. */
 const WORK_MS = 1_000;
 /** How far back each read of the journal looks again, for a transaction that committed late (as `/live`). */
@@ -65,8 +77,18 @@ const WORK_LOOKBACK_MS = 30_000;
 const BATCH = 500;
 /** Rows a returning stream is sent of what it missed; further behind, it is told to read everything again. */
 const REPLAY_MOST = 1_000;
-/** The longest a new stream waits for this process to be listening, before it goes on without. */
+/**
+ * The longest a stream waits for this process to be listening, counted from
+ * when the hub began to connect, before it goes on without: the five-second
+ * read keeps it right meanwhile.
+ */
 const LISTEN_WAIT_MS = 2_000;
+/**
+ * How long the hub's connection may take to be made, and its LISTEN to be
+ * answered, before it is given up and tried again later: a pooler that takes
+ * the connection and never answers would otherwise hold it for ever.
+ */
+const CONNECT_MS = 10_000;
 
 /**
  * What this process has done, for the metrics (src/reporting/metrics.ts): the
@@ -82,7 +104,7 @@ interface Subscriber {
   readonly companyId: string;
   readonly person: Person;
   readonly kind: RoomStreamOpening['kind'];
-  readonly token: string;
+  /** The session's token, kept only as its hash: what the check of its session asks after. */
   readonly tokenHash: string;
   /** The newest position this stream was sent, or was decided past. */
   through: number;
@@ -131,7 +153,7 @@ interface Batch {
   listening: Map<string, Set<string>>;
 }
 
-export interface HubOptions {
+interface HubOptions {
   sessions: OwnerSessions;
   staff: StaffSeats;
   /** The streams this process holds open, which an end told by another process ends. */
@@ -161,7 +183,10 @@ export class RoomHub implements PeopleHub {
    */
   readonly #scope = new AsyncResource('palugada-hub');
   #client: pg.Client | null = null;
+  /** A connection being made, which never fails: a failure is tried again later (`#lost`). */
   #connecting: Promise<void> | null = null;
+  /** When the hub began to make it: a stream waits for it at most `LISTEN_WAIT_MS` from then. */
+  #connectingSince = 0;
   #retry: NodeJS.Timeout | null = null;
   #retryMs = 1_000;
   #verifying: NodeJS.Timeout | null = null;
@@ -198,7 +223,6 @@ export class RoomHub implements PeopleHub {
       companyId: opening.companyId,
       person: opening.person,
       kind: opening.kind,
-      token: opening.token,
       tokenHash: StreamRegistry.hashOf(opening.token),
       through: 0,
       held: [],
@@ -210,17 +234,23 @@ export class RoomHub implements PeopleHub {
     mine.add(subscriber);
     this.#held.set(whose, mine);
     HUB_COUNTS.streams += 1;
+    let company: Company | null;
     try {
       // Listening first, so an end another process tells from here on is heard.
       await this.listening();
-      subscriber.through = (await this.#join(subscriber)).cursor;
+      company = await this.#join(subscriber);
     } catch (error) {
       this.#leave(subscriber);
       throw error;
     }
+    if (company) subscriber.through = company.cursor;
     const after = positionOf(opening.lastEventId);
     return new EventStream(async (send, signal) => {
       try {
+        // The hub closed while this stream joined, as the API closes: the
+        // stream ends at once, and the console asks for it again, of whichever
+        // process answers then, rather than being refused for good.
+        if (!company) return;
         subscriber.send = send;
         await this.#catchUp(subscriber, after);
         if (!signal.aborted) {
@@ -249,21 +279,24 @@ export class RoomHub implements PeopleHub {
 
   /**
    * This process listening for the rooms' changes and for streams ended
-   * elsewhere: connected once, and again after a loss. Any stream begins it,
-   * so a process that holds only `/live` open hears an end told elsewhere too.
+   * elsewhere, and asking after its streams' sessions every twenty-five
+   * seconds: connected once, and again after a loss while it holds any
+   * stream. Every stream begins it, `/live`'s too, so a process that holds
+   * only `/live` open hears an end told elsewhere as well.
    */
   async listening(): Promise<void> {
-    if (this.#client) return;
-    if (!this.#connecting) {
-      const generation = this.#generation;
-      this.#connecting = this.#scope.runInAsyncScope(() => this.#connect(generation)).finally(() => { this.#connecting = null; });
-    }
-    // A stream does not wait on a database that will not answer: the five-second read keeps it right meanwhile.
+    this.#checking();
+    // Listening already, or trying again on its own clock: a stream neither waits nor begins another try.
+    if (this.#client || this.#retry) return;
+    const connecting = this.#connecting ?? this.#begin();
+    // At most two seconds from when the hub began to connect, not two seconds
+    // for each stream: a database that takes the connection and never answers
+    // holds up the first stream alone, and the five-second read keeps every
+    // stream right meanwhile.
+    const left = this.#connectingSince + LISTEN_WAIT_MS - Date.now();
+    if (left <= 0) return;
     let waited: NodeJS.Timeout | undefined;
-    await Promise.race([
-      this.#connecting.catch(() => undefined),
-      new Promise<void>((resolve) => { waited = setTimeout(resolve, LISTEN_WAIT_MS); }),
-    ]);
+    await Promise.race([connecting, new Promise<void>((resolve) => { waited = setTimeout(resolve, left); })]);
     clearTimeout(waited);
   }
 
@@ -276,20 +309,50 @@ export class RoomHub implements PeopleHub {
     this.#verifying = null;
     if (this.#retry) clearTimeout(this.#retry);
     this.#retry = null;
-    const connecting = this.#connecting;
-    if (connecting) await connecting.catch(() => undefined);
+    this.#retryMs = 1_000;
+    // A connection still being made is not waited for: the raised generation
+    // ends it once it is made, or it is given up within `CONNECT_MS`. Waiting
+    // would hold the API's close, and with it a restart that takes up new
+    // settings, on a database that may never answer.
     const client = this.#client;
     this.#client = null;
-    if (client) await client.end().catch(() => undefined);
+    if (client) await endQuietly(client);
   }
 
   /* ----------------------------------------------------------- listening --- */
 
+  /** A connection begun, in the hub's own context. */
+  #begin(): Promise<void> {
+    const generation = this.#generation;
+    this.#connectingSince = Date.now();
+    const connecting = this.#scope.runInAsyncScope(() => this.#connect(generation)).finally(() => { this.#connecting = null; });
+    this.#connecting = connecting;
+    return connecting;
+  }
+
+  /** The check of every stream's session (`#verify`): begun by the first stream, ended by a check that finds none, or by closing. */
+  #checking(): void {
+    if (this.#verifying) return;
+    this.#scope.runInAsyncScope(() => {
+      this.#verifying = setInterval(() => void this.#verify(), VERIFY_MS);
+      // The streams keep the process up, not the check of them.
+      this.#verifying.unref();
+    });
+  }
+
+  /** Connects and LISTENs; never fails, since a failure is tried again later (`#lost`). */
   async #connect(generation: number): Promise<void> {
     const client = new pg.Client({
       connectionString: this.#options.listenUrl ?? connectionString('app'),
       // Named, so an operator reading pg_stat_activity knows what holds it.
       application_name: 'palugada-hub',
+      // A database that takes the connection and never answers, a pooler that
+      // hangs, is given up and tried again later rather than waited on for ever.
+      connectionTimeoutMillis: CONNECT_MS,
+      query_timeout: CONNECT_MS,
+      // And one that goes away without a word once connected is found by the
+      // operating system's probes, rather than when the next notice never comes.
+      keepAlive: true,
     });
     client.on('notification', (message) => this.#heard(message.channel, message.payload ?? ''));
     client.on('error', () => this.#lost(client, generation));
@@ -298,13 +361,13 @@ export class RoomHub implements PeopleHub {
       await client.connect();
       await client.query('LISTEN palugada_people');
       await client.query('LISTEN palugada_people_end');
-    } catch (error) {
-      await client.end().catch(() => undefined);
+    } catch {
+      await endQuietly(client);
       this.#lost(client, generation);
-      throw error;
+      return;
     }
     if (generation !== this.#generation) {
-      await client.end().catch(() => undefined);
+      await endQuietly(client);
       return;
     }
     this.#client = client;
@@ -315,8 +378,9 @@ export class RoomHub implements PeopleHub {
 
   /**
    * The connection went, or never came: tried again, a little later each
-   * time, while anyone is listening. With nobody listening it is not tried;
-   * the next stream connects again.
+   * time, while this process holds any stream, `/live`'s included, since an
+   * end told by another process reaches it only here. With no stream open it
+   * is not tried; the next stream connects again.
    */
   #lost(client: pg.Client, generation: number): void {
     if (this.#client === client) this.#client = null;
@@ -325,8 +389,9 @@ export class RoomHub implements PeopleHub {
     this.#retryMs = Math.min(this.#retryMs * 2, 30_000);
     this.#retry = setTimeout(() => {
       this.#retry = null;
-      if (generation !== this.#generation || this.#client || this.#companies.size === 0) return;
-      void this.listening();
+      if (generation !== this.#generation || this.#client || this.#connecting) return;
+      if (this.#companies.size === 0 && this.#options.streams.size === 0) return;
+      void this.#begin();
     }, wait);
     // A retry alone does not keep the process up: the API's close clears it.
     this.#retry.unref();
@@ -357,15 +422,18 @@ export class RoomHub implements PeopleHub {
 
   /* ----------------------------------------------------------- companies --- */
 
-  /** A subscriber added to its company, which is begun when it is the first: where the feed is read from. */
-  async #join(subscriber: Subscriber): Promise<Company> {
+  /**
+   * A subscriber added to its company, which is begun when it is the first:
+   * where the feed is read from. Null when the hub closed meanwhile.
+   */
+  async #join(subscriber: Subscriber): Promise<Company | null> {
     let company = this.#companies.get(subscriber.companyId);
     if (!company) {
       const generation = this.#generation;
       // The clock as it is now, read by the delivery reader: people never read it.
       const cursor = await clockOf(subscriber.companyId);
       const looked = await databaseNow(subscriber.companyId);
-      if (generation !== this.#generation) throw new PalugadaError('stream.too_many', 'the live hub is closing; try again in a moment', {});
+      if (generation !== this.#generation) return null;
       // Another stream may have begun the company while this one read the clock.
       company = this.#companies.get(subscriber.companyId);
       if (!company) {
@@ -388,9 +456,6 @@ export class RoomHub implements PeopleHub {
       }
     }
     company.subscribers.add(subscriber);
-    if (!this.#verifying) {
-      this.#scope.runInAsyncScope(() => { this.#verifying = setInterval(() => void this.#verify(), VERIFY_MS); });
-    }
     return company;
   }
 
@@ -407,10 +472,6 @@ export class RoomHub implements PeopleHub {
     if (company?.subscribers.delete(subscriber) && company.subscribers.size === 0) {
       this.#stop(company);
       this.#companies.delete(company.id);
-    }
-    if (this.#companies.size === 0 && this.#verifying) {
-      clearInterval(this.#verifying);
-      this.#verifying = null;
     }
   }
 
@@ -503,27 +564,40 @@ export class RoomHub implements PeopleHub {
    * missed, read as its person, then what came while that was read. One with
    * no position hears from now on, and is told the newest position it could
    * have seen, so a reconnection after a quiet spell misses nothing. One
-   * whose position the kept feed no longer reaches is told to read
-   * everything again.
+   * whose position the kept feed no longer reaches, or the company's clock
+   * has not reached, is told to read everything again, with that newest
+   * position as its id, so the console's next reconnection resumes from
+   * there rather than being told to reset again.
    */
   async #catchUp(subscriber: Subscriber, after: number | null): Promise<void> {
     const joined = subscriber.through;
+    const { companyId, person } = subscriber;
+    // What the person could have seen by the time they joined, read as them: the clock itself is never sent.
+    const newest = async () => {
+      const seen = await withPeople(companyId, person, (tx) => newestSeen(tx, companyId, joined));
+      return seen === null ? undefined : String(seen);
+    };
     try {
       if (after === null) {
-        const newest = await withPeople(subscriber.companyId, subscriber.person, (tx) => newestSeen(tx, subscriber.companyId, joined));
-        if (newest !== null) subscriber.send?.(undefined, String(newest));
+        const id = await newest();
+        if (id !== undefined) subscriber.send?.(undefined, id);
       } else if (after < joined) {
-        const oldest = await withDelivery(subscriber.companyId, (tx) => oldestKept(tx, subscriber.companyId));
+        const oldest = await withDelivery(companyId, (tx) => oldestKept(tx, companyId));
         const missed = oldest === null || after < oldest - 1
           ? null
-          : await withPeople(subscriber.companyId, subscriber.person, (tx) => missedSince(tx, subscriber.companyId, subscriber.person.principal, after, joined));
+          : await withPeople(companyId, person, (tx) => missedSince(tx, companyId, person.principal, after, joined));
         if (missed === null || (missed.rows.length === REPLAY_MOST && Number(missed.rows.at(-1)!.position) < joined)) {
-          subscriber.send?.({ kind: 'reset' });
+          subscriber.send?.({ kind: 'reset' }, await newest());
         } else {
           for (const row of missed.rows) {
-            subscriber.send?.(frameOf(row, subscriber.person.principal, missed.listening), row.position);
+            subscriber.send?.(frameOf(row, person.principal, missed.listening), row.position);
           }
         }
+      } else if (after > joined && after > await clockOf(companyId)) {
+        // A position the company has not reached: an id kept from before the
+        // database was restored to an earlier moment. Waiting for the clock to
+        // pass it would leave the stream silent until then.
+        subscriber.send?.({ kind: 'reset' }, await newest());
       } else {
         // Ahead of where this process has read: what it heard elsewhere is not sent again.
         subscriber.through = after;
@@ -553,28 +627,41 @@ export class RoomHub implements PeopleHub {
   /* ----------------------------------------------------------- verifying --- */
 
   /**
-   * Every subscriber's session asked again, all at once: a session ended, a
-   * device or a seat revoked, or a seat's kind changed where no process here
-   * heard of it, ends the streams it opened.
+   * The session behind every stream of this process asked again, all at once
+   * and by its token's hash: `/live`'s as well as the room streams'. A
+   * session ended, a device or a seat revoked, or a seat's kind changed where
+   * no process here heard of it, ends the streams it opened. With no stream
+   * open, the check ends; the next stream begins it.
    */
   async #verify(): Promise<void> {
-    const all = [...this.#companies.values()].flatMap((company) => [...company.subscribers]);
-    const owners = [...new Set(all.filter((one) => one.kind === 'owner').map((one) => one.token))];
-    const seats = [...new Set(all.filter((one) => one.kind !== 'owner').map((one) => one.token))];
+    const open: Array<{ tokenHash: string; principal: string; companyId: string | null; kind: RoomStreamOpening['kind'] | null }> = [
+      ...this.#options.streams.sessions().map((one) => ({ ...one, kind: null })),
+      // A room stream knows the kind of seat it was opened as, which `/live` does not.
+      ...[...this.#companies.values()].flatMap((company) => [...company.subscribers].map((one) => ({
+        tokenHash: one.tokenHash, principal: one.person.principal, companyId: one.companyId, kind: one.kind,
+      }))),
+    ];
+    if (open.length === 0) {
+      if (this.#verifying) clearInterval(this.#verifying);
+      this.#verifying = null;
+      return;
+    }
+    const owners = [...new Set(open.filter((one) => one.principal === 'owner').map((one) => one.tokenHash))];
+    const seats = [...new Set(open.filter((one) => one.principal !== 'owner').map((one) => one.tokenHash))];
     try {
-      const owner = owners.length > 0 ? await this.#options.sessions.verifyMany(owners) : new Map();
-      const staff = seats.length > 0 ? await this.#options.staff.verifyMany(seats) : new Map();
-      for (const subscriber of all) {
-        if (subscriber.kind === 'owner') {
-          if (!owner.has(subscriber.token)) this.#options.streams.endTokenHash(subscriber.tokenHash);
+      const owner = owners.length > 0 ? await this.#options.sessions.liveByHash(owners) : new Map();
+      const staff = seats.length > 0 ? await this.#options.staff.liveByHash(seats) : new Map();
+      for (const one of open) {
+        if (one.principal === 'owner') {
+          if (!owner.has(one.tokenHash)) this.#options.streams.endTokenHash(one.tokenHash);
           continue;
         }
-        const session = staff.get(subscriber.token);
-        if (!session || session.seat.companyId !== subscriber.companyId) this.#options.streams.endTokenHash(subscriber.tokenHash);
-        else if (session.seat.kind !== subscriber.kind) this.#options.streams.endPrincipal(subscriber.person.principal);
+        const session = staff.get(one.tokenHash);
+        if (!session || (one.companyId !== null && session.seat.companyId !== one.companyId)) this.#options.streams.endTokenHash(one.tokenHash);
+        else if (one.kind !== null && session.seat.kind !== one.kind) this.#options.streams.endPrincipal(one.principal);
       }
     } catch {
-      // Asked again in thirty seconds.
+      // Asked again in twenty-five seconds.
     }
   }
 }
@@ -583,6 +670,15 @@ export class RoomHub implements PeopleHub {
 function positionOf(value: string | null): number | null {
   if (value === null || !/^\d{1,15}$/.test(value.trim())) return null;
   return Number(value.trim());
+}
+
+/** Ends a connection that may already have gone: pg's end answers once the socket is closed, however it closed. */
+async function endQuietly(client: pg.Client): Promise<void> {
+  try {
+    await client.end();
+  } catch {
+    // Gone already: nothing is left to end.
+  }
 }
 
 /** Whether a person hears a row: the rooms' rule (0150), from the batch's rows. */
